@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Editor state
+.vscode/
+.idea/
+
+# Local environment files
+.env
+.env.*
+
+# Runtime/build artifacts
+node_modules/
+dist/
+build/
+coverage/
+.tmp/
