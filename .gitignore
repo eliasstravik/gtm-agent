@@ -8,6 +8,7 @@
 # Local environment files
 .env
 .env.*
+!.env.example
 
 # Runtime/build artifacts
 node_modules/
@@ -15,3 +16,7 @@ dist/
 build/
 coverage/
 .tmp/
+.eve/
+.vercel/
+.output/
+*.log

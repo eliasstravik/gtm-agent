@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "status": "blocked_missing_upstream_license",
+  "source": {
+    "url": "https://github.com/eliasstravik/gtmskills.git",
+    "commit": "ebb749fc6abe449d64201b921b1fad2fb34e25d5",
+    "license": null
+  },
+  "skills": [
+    "gtm-account-research",
+    "gtm-account-scoring",
+    "gtm-account-segmentation",
+    "gtm-context",
+    "gtm-icp",
+    "gtm-lead-research",
+    "gtm-lead-scoring",
+    "gtm-lead-segmentation",
+    "gtm-persona"
+  ],
+  "files": {}
+}

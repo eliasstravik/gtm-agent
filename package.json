@@ -1,0 +1,36 @@
+{
+  "name": "gtm-agent",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "imports": {
+    "#*": "./agent/*",
+    "#evals/*": "./evals/*"
+  },
+  "scripts": {
+    "build": "eve build",
+    "dev": "eve dev",
+    "start": "eve start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "eval": "eve eval",
+    "skills:sync": "node scripts/sync-gtmskills.mjs",
+    "skills:check": "node scripts/sync-gtmskills.mjs --check",
+    "check": "pnpm skills:check && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@vercel/connect": "0.6.1",
+    "ai": "7.0.55",
+    "eve": "0.31.0",
+    "octokit": "5.0.5",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "typescript": "5.9.2"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "packageManager": "pnpm@10.14.0"
+}
