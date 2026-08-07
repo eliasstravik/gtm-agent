@@ -32,7 +32,8 @@ export const EXPECTED_SKILLS = [
 
 const scriptRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const lockName = "skills-lock.json";
-const vendoredLicenseName = "LICENSE";
+const vendoredLicensePath = "LICENSES/gtmskills-MIT.txt";
+const legacyVendoredLicenseName = "LICENSE";
 
 export async function syncVendoredSkills(sourceRoot, projectRoot = scriptRoot) {
   const source = resolvePath(sourceRoot);
@@ -42,7 +43,7 @@ export async function syncVendoredSkills(sourceRoot, projectRoot = scriptRoot) {
   const sourceLicense = await findMitLicense(source);
   assertShippingPathsClean(source, sourceLicense);
   await assertExpectedSourceSkills(source);
-  await assertNoUnexpectedTargetSkills(target);
+  await assertNoUnexpectedTargetSkills(target, { allowLegacyLicense: true });
 
   await mkdir(target, { recursive: true });
   const candidateRoot = await mkdtemp(join(target, ".gtm-skills-candidate-"));
@@ -55,7 +56,9 @@ export async function syncVendoredSkills(sourceRoot, projectRoot = scriptRoot) {
         join(skillsDirectory, skill),
       );
     }
-    await cp(sourceLicense, join(skillsDirectory, vendoredLicenseName));
+    const candidateLicense = join(candidateRoot, vendoredLicensePath);
+    await mkdir(dirname(candidateLicense), { recursive: true });
+    await cp(sourceLicense, candidateLicense);
 
     const lock = {
       version: 1,
@@ -63,7 +66,8 @@ export async function syncVendoredSkills(sourceRoot, projectRoot = scriptRoot) {
       source: {
         url: EXPECTED_SOURCE_URL,
         commit: git(source, ["rev-parse", "HEAD"]),
-        license: `agent/skills/${vendoredLicenseName}`,
+        license: vendoredLicensePath,
+        licenseSha256: await hashFile(candidateLicense),
       },
       skills: [...EXPECTED_SKILLS],
       files: await hashVendoredFiles(skillsDirectory),
@@ -97,7 +101,9 @@ export async function verifyVendoredSkills(projectRoot = scriptRoot) {
     lock.source?.url !== EXPECTED_SOURCE_URL ||
     typeof lock.source?.commit !== "string" ||
     !/^[0-9a-f]{40}$/i.test(lock.source.commit) ||
-    lock.source?.license !== `agent/skills/${vendoredLicenseName}`
+    lock.source?.license !== vendoredLicensePath ||
+    typeof lock.source?.licenseSha256 !== "string" ||
+    !/^[0-9a-f]{64}$/i.test(lock.source.licenseSha256)
   ) {
     throw new Error("skills-lock.json has invalid source metadata.");
   }
@@ -125,11 +131,12 @@ export async function verifyVendoredSkills(projectRoot = scriptRoot) {
     throw new Error("Vendored skill files drifted from skills-lock.json.");
   }
 
-  const license = await readFile(
-    join(skillsDirectory, vendoredLicenseName),
-    "utf8",
-  );
+  const licensePath = join(target, vendoredLicensePath);
+  const license = await readFile(licensePath, "utf8");
   assertMitLicenseText(license);
+  if ((await hashFile(licensePath)) !== lock.source.licenseSha256) {
+    throw new Error("Vendored GTM Skills license drifted from skills-lock.json.");
+  }
 }
 
 async function assertExpectedSourceSkills(source) {
@@ -143,7 +150,10 @@ async function assertExpectedSourceSkills(source) {
   }
 }
 
-async function assertNoUnexpectedTargetSkills(projectRoot) {
+async function assertNoUnexpectedTargetSkills(
+  projectRoot,
+  { allowLegacyLicense = false } = {},
+) {
   const skillsDirectory = join(projectRoot, "agent", "skills");
   let entries;
   try {
@@ -155,7 +165,11 @@ async function assertNoUnexpectedTargetSkills(projectRoot) {
 
   const unexpected = entries.filter(
     (entry) =>
-      entry.name !== vendoredLicenseName &&
+      !(
+        allowLegacyLicense &&
+        entry.isFile() &&
+        entry.name === legacyVendoredLicenseName
+      ) &&
       !(entry.isDirectory() && EXPECTED_SKILLS.includes(entry.name)),
   );
   if (unexpected.length > 0) {
@@ -230,27 +244,36 @@ async function installCandidateSnapshot(candidateRoot, target) {
   const targetAgent = join(target, "agent");
   const targetSkills = join(targetAgent, "skills");
   const targetLock = join(target, lockName);
+  const targetLicense = join(target, vendoredLicensePath);
   const backupSkills = join(targetAgent, `.skills-backup-${suffix}`);
   const backupLock = join(target, `.skills-lock-backup-${suffix}.json`);
+  const backupLicense = join(target, `.gtm-skills-license-backup-${suffix}.txt`);
   let hadSkills = false;
   let hadLock = false;
+  let hadLicense = false;
 
   await mkdir(targetAgent, { recursive: true });
+  await mkdir(dirname(targetLicense), { recursive: true });
   try {
     hadSkills = await moveIfPresent(targetSkills, backupSkills);
     hadLock = await moveIfPresent(targetLock, backupLock);
+    hadLicense = await moveIfPresent(targetLicense, backupLicense);
     await rename(join(candidateRoot, "agent", "skills"), targetSkills);
     await rename(join(candidateRoot, lockName), targetLock);
+    await rename(join(candidateRoot, vendoredLicensePath), targetLicense);
     await verifyVendoredSkills(target);
   } catch (error) {
     await rm(targetSkills, { recursive: true, force: true });
     await rm(targetLock, { force: true });
+    await rm(targetLicense, { force: true });
     if (hadSkills) await rename(backupSkills, targetSkills);
     if (hadLock) await rename(backupLock, targetLock);
+    if (hadLicense) await rename(backupLicense, targetLicense);
     throw error;
   }
   await rm(backupSkills, { recursive: true, force: true });
   await rm(backupLock, { force: true });
+  await rm(backupLicense, { force: true });
 }
 
 async function moveIfPresent(source, destination) {
@@ -302,6 +325,10 @@ async function hashVendoredFiles(skillsDirectory) {
     hashes[file.relativePath] = createHash("sha256").update(contents).digest("hex");
   }
   return hashes;
+}
+
+async function hashFile(path) {
+  return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
 async function collectFiles(root, directory, files) {

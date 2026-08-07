@@ -63,14 +63,14 @@ test("vendored snapshot is either verified or explicitly license-blocked", async
   assert.deepEqual(installed, expected);
 });
 
-test("the CLI entrypoint executes the blocked integrity gate", () => {
+test("the CLI entrypoint verifies the ready integrity gate", () => {
   const result = spawnSync(
     process.execPath,
     [fileURLToPath(new URL("scripts/sync-gtmskills.mjs", root)), "--check"],
     { encoding: "utf8" },
   );
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /upstream MIT license/i);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /match skills-lock\.json/i);
 });
 
 test("sync copies a clean MIT-licensed snapshot, locks every file, and detects drift", async () => {
@@ -103,11 +103,16 @@ test("sync copies a clean MIT-licensed snapshot, locks every file, and detects d
 
     const lock = await syncVendoredSkills(source, target);
     assert.equal(lock.status, "ready");
-    assert.equal(lock.source.license, "agent/skills/LICENSE");
-    assert.equal(Object.keys(lock.files).length, expected.length + 1);
+    assert.equal(lock.source.license, "LICENSES/gtmskills-MIT.txt");
+    assert.match(lock.source.licenseSha256, /^[0-9a-f]{64}$/);
+    assert.equal(Object.keys(lock.files).length, expected.length);
     await verifyVendoredSkills(target);
 
     const originalTargetLock = await readFile(join(target, "skills-lock.json"), "utf8");
+    const originalTargetLicense = await readFile(
+      join(target, "LICENSES", "gtmskills-MIT.txt"),
+      "utf8",
+    );
     const originalTargetSkill = await readFile(
       join(target, "agent", "skills", expected[0], "SKILL.md"),
       "utf8",
@@ -124,6 +129,18 @@ test("sync copies a clean MIT-licensed snapshot, locks every file, and detects d
       originalTargetSkill,
     );
     await writeFile(join(source, "LICENSE"), fixtureLicense, "utf8");
+
+    await writeFile(
+      join(target, "LICENSES", "gtmskills-MIT.txt"),
+      `${originalTargetLicense}\ntampered\n`,
+      "utf8",
+    );
+    await assert.rejects(verifyVendoredSkills(target), /license drifted/i);
+    await writeFile(
+      join(target, "LICENSES", "gtmskills-MIT.txt"),
+      originalTargetLicense,
+      "utf8",
+    );
 
     const unsafeLink = join(source, "skills", expected.at(-1), "unsafe-link.md");
     await symlink("SKILL.md", unsafeLink);

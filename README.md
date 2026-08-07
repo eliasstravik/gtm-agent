@@ -1,192 +1,107 @@
-# GTM Agent for Slack
+<p align="center"><img src="https://img.shields.io/badge/GTM%20Agent-Open%20source%20agent%20for%20GTM-2ea44f?style=flat-square&labelColor=24292f" alt="GTM Agent — Open source agent for GTM" /></p>
 
-An open-source [Eve](https://eve.dev) template that brings evidence-backed GTM research, scoring, segmentation, ICP, persona, and context-management workflows into Slack. Deploy it as a useful Slack-only teammate, or connect one GitHub repository for durable, reviewable GTM context.
+<h3 align="center">Run your full GTM motion from one Slack agent</h3>
 
-> Release evidence pending: add a scrubbed screenshot of the deployed Slack experience after the disposable-account smoke test. No production or private context should appear in that image.
+<p align="center">GTM Agent lets your team define the market, qualify accounts and leads, and research the next move when one-off prompts keep losing the rules, by bringing nine open source GTM skills into Slack and connecting them to one Git-backed GTM context.</p>
 
-## Deploy
+<p align="center"><img src="assets/gtm-agent-slack-hero.png" width="88%" alt="A teammate asks GTM Agent in Slack to segment Acme against saved ICPs; GTM Agent answers from the connected GTM context with a segment, fit, rationale, and next move." /></p>
 
-### Recommended: Slack + one GTM context repository
+<p align="center"><a href="docs/getting-started.md"><img src="assets/buttons/deploy-gtm-agent.svg" alt="Deploy GTM Agent" /></a>&nbsp;&nbsp;<a href="https://cal.com/stravik/demo?projects=GTM%20Agent" target="_blank" rel="noopener noreferrer"><img src="assets/buttons/book-a-demo.svg" alt="Book a demo" /></a></p>
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?project-name=gtm-agent&repository-name=gtm-agent&repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D&env=GTM_CONTEXT_REPOSITORY&envDescription=Use%20one%20owner%2Frepo%20GitHub%20repository%20for%20durable%20GTM%20context.)
+<p align="center"><sub>✓&nbsp;100%&nbsp;free&nbsp;and&nbsp;open&nbsp;source &nbsp; ✓&nbsp;Nine&nbsp;GTM&nbsp;skills,&nbsp;one&nbsp;Slack&nbsp;agent &nbsp; ✓&nbsp;Built&nbsp;for&nbsp;the&nbsp;full&nbsp;GTM&nbsp;motion</sub></p>
 
-The button creates the project, connects Slack, and asks for `GTM_CONTEXT_REPOSITORY` in exact `owner/repo` form. GitHub connector creation cannot currently be guaranteed by the Deploy Button without a trigger, so finish the setup in Vercel after deployment:
+<p align="center"><small>⭐ Used by top GTM teams</small></p>
 
-1. Create a GitHub connector with `vercel connect create github` or in the project's Connect settings.
-2. Grant it only the repository named by `GTM_CONTEXT_REPOSITORY`.
-3. Set the returned connector identifier as `GITHUB_CONNECTOR` and redeploy.
+<br />
 
-Both GitHub values must be set together. The repository must already use the [GTM context contract](#context-repository-contract), have a `main` branch, and contain root `org.md`.
+## Make Slack the front door to your GTM operating system
 
-`SLACK_CONNECTOR` is required for both production deployment paths. The generated connector identifier must be present at production startup. The `slack/my-agent` placeholder is limited to local development and build-time validation.
+A teammate asks for the outcome in a channel or DM. GTM Agent selects the focused workflow, reads the connected organization context when the job requires it, and returns the reasoning where the rest of the team can review it.
 
-### Minimal: Slack only
+## Choose between rebuilding prompts, switching between tools, wiring a generic chatbot — or deploying one purpose-built GTM agent in Slack
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?project-name=gtm-agent&repository-name=gtm-agent&repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D)
+| | **GTM Agent** | Repeated prompts | Standalone templates | Generic AI chat |
+|---|:---:|:---:|:---:|:---:|
+| **Ships as a ready-to-deploy Eve Slack agent** | ✅ | ❌ | ❌ | ❌ |
+| **Includes the exact nine GTM Skills workflows** | ✅ | ❌ | ❌ | ❌ |
+| **Pins one context repository at deployment** | ✅ | ❌ | ❌ | ❌ |
+| **Keeps connector tokens out of sandbox commands** | ✅ | ❌ | ❌ | ❌ |
+| **Uses native approval for context writes** | ✅ | ❌ | ❌ | ❌ |
+| **Commits an approved change atomically on main** | ✅ | ❌ | ❌ | ❌ |
+| **Stops a write when the repository HEAD changes** | ✅ | ❌ | ❌ | ❌ |
+| **Adds no database, web UI, or alternate memory** | ✅ | ❌ | ❌ | ❌ |
 
-Leave `GITHUB_CONNECTOR` and `GTM_CONTEXT_REPOSITORY` unset. The bundled skills decide which operations can work without persistent context and explain their own prerequisites; the template does not invent another memory system.
+GTM Agent arrives as a deliberately narrow Eve template: one Slack interface, one exact workflow inventory, one deployment-fixed context target, and one approval-gated path for durable changes.
 
-## Prerequisites
+## Ask the question. See the GTM basis. Take the next action.
 
-- A Vercel account with Eve/Workflow, Vercel Sandbox, Connect, and AI Gateway available.
-- A Slack workspace where you can install the generated app.
-- For the recommended path, one existing GitHub repository with a `main` branch and root `org.md`, ideally scaffolded using `/gtm-context` from the separately installed GTM skills.
+### 📈 Run the GTM work where the request appears
 
-There are two distinct repositories: this public template contains executable agent code and a reviewed skill snapshot; your private context repository contains organization, ICP, persona, and people files. Never point `GTM_CONTEXT_REPOSITORY` at this template repository.
+Ask for ICP, persona, segmentation, scoring, or research work in Slack without sending the team into a separate GTM application.
 
-## Five-minute setup
+### ⚡ Use one agent for nine focused jobs
 
-1. Choose one Deploy Button above and authorize Slack.
-2. For the recommended path, enter the private context repository as `owner/repo`, create the GitHub connector after deployment, grant exactly that repository, set `GITHUB_CONNECTOR`, and redeploy.
-3. Confirm `/eve/v1/health` is healthy in the production deployment.
-4. In a Slack DM, try: `What GTM workflows can you help me with, and which ones require connected context?`
-5. With context connected, try: `Read our saved ICPs and tell me which one best fits example.com. Cite the facts you used.`
+The agent routes each request to a named workflow instead of relying on one giant prompt to improvise the method.
 
-## Capability matrix
+### 💬 Keep durable changes reviewable
 
-| Capability | Slack only | Slack + context |
-| --- | --- | --- |
-| Load the bundled GTM workflows and explain prerequisites | Yes | Yes |
-| Public account/lead research when its skill prerequisites are met | Yes | Yes |
-| Read saved organization, ICP, persona, and people context | Stops and explains the missing repository | Yes, from the one configured repository |
-| Score or segment against saved context | Stops rather than fabricating context | Yes |
-| Create, update, delete, or doctor in-contract context files | No durable target | Yes, through one approval and one atomic commit |
-| Create/import repositories, configure sharing, delete a whole repository, use multiple contexts, schedule work, or open a browser UI | No | No |
+When connected context needs an update, the agent shows the complete proposal and applies it only through native approval and one atomic commit.
 
-## Approvals, Git history, and stale writes
+## Deploy the agent and ask the first GTM question in three steps
 
-The context repository is cloned shallowly into a fresh per-session Vercel Sandbox. Its Git remote is removed, the checkout is verified, and sandbox networking returns to deny-all. Git credentials and connector tokens are never exposed to commands in the sandbox. Temporary drafts belong under `$HOME/.gtm-scratch/`, outside the checkout.
+<table>
+<tr>
+<td align="center" valign="top" width="33%"><h3>1️⃣</h3><b>Deploy GTM Agent</b><br /><sub>Create the Vercel project from this Eve template and configure the required model access.</sub></td>
+<td align="center" valign="top" width="33%"><h3>2️⃣</h3><b>Connect Slack</b><br /><sub>Authorize the generated Slack app and verify the standard Eve health endpoint.</sub></td>
+<td align="center" valign="top" width="33%"><h3>3️⃣</h3><b>Connect your GTM context</b><br /><sub>Point the deployment at one repository when the team wants shared organization, ICP, persona, and people context.</sub></td>
+</tr>
+</table>
 
-For a write, the agent submits one ordered request containing a concise summary, the complete affected-path manifest, the expected Git HEAD, and all additions/deletions. Eve's native human-in-the-loop gate asks for approval before execution. Approval covers the complete tool request even if Slack visually truncates long file contents.
+## Choose how to get started
 
-After approval, the trusted runtime:
+<table>
+<tr>
+<td align="center" valign="top" width="50%"><h3>Self-serve</h3><sub>For GTM builders and teams using Slack</sub><br /><h2>Free</h2><div align="left">&nbsp;&nbsp;&nbsp;✓&nbsp; One open-source Eve Slack agent<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Nine focused GTM skills<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Slack-only deployment<br />&nbsp;&nbsp;&nbsp;✓&nbsp; One Git-backed GTM context repository<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Approval-gated atomic context updates<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Evidence-backed account and lead research</div></td>
+<td align="center" valign="top" width="50%"><h3>Done-with-you</h3><sub>Hands-on setup and rollout for your GTM team</sub><br /><h2>Let's talk</h2><div align="left">&nbsp;&nbsp;&nbsp;✓&nbsp; Everything in self-serve<br />&nbsp;&nbsp;&nbsp;✓&nbsp; GTM Agent deployment<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Slack and GitHub connector setup<br />&nbsp;&nbsp;&nbsp;✓&nbsp; GTM context repository configuration<br />&nbsp;&nbsp;&nbsp;✓&nbsp; ICP and persona workflow design<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Team rollout, training, and best practices<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Dedicated Slack channel support</div></td>
+</tr>
+<tr>
+<td align="center"><a href="docs/getting-started.md"><img src="assets/buttons/deploy-gtm-agent.svg" alt="Deploy GTM Agent" /></a></td>
+<td align="center"><a href="https://cal.com/stravik/demo?projects=GTM%20Agent" target="_blank" rel="noopener noreferrer"><img src="assets/buttons/book-a-demo.svg" alt="Book a demo" /></a></td>
+</tr>
+</table>
 
-1. validates every path, size, manifest entry, and expected object ID before requesting write authorization;
-2. verifies the local checkout, expected HEAD, clean state, branch, stale marker, and symlink-free path chain;
-3. compares the current remote HEAD;
-4. creates exactly one atomic GitHub commit on `main` using `createCommitOnBranch`;
-5. refreshes the sandbox with a separate read-only token, resets to that exact commit, and returns to deny-all networking.
+## Get your questions answered
 
-A changed HEAD is a conflict: the agent makes no write and asks for a fresh Slack thread. It never merges, rebases, retries, force-pushes, or falls back to several commits. The atomic mutation client disables automatic retries and applies a request deadline. If GitHub confirms the commit but the sandbox cannot refresh, the durable commit URL is returned, the session is marked stale, and another mutation requires a fresh thread. If deny-all egress cannot be restored after two attempts, the operation raises a terminal session error instead of reporting success.
+### What does GTM Agent deploy?
 
-## Security model
+One deliberately small Eve agent with Slack as its only channel, the exact approved GTM workflow inventory, and an optional connection to one fixed GTM context repository.
 
-- Grant the Slack connector only the permissions Eve requests and grant GitHub access to one dedicated context repository.
-- Read and write tokens are minted separately, short-lived, repository-bound, and kept in the trusted runtime.
-- Only Git smart-HTTP discovery for `git-upload-pack` and the exact `git-upload-pack` POST receive firewall-injected read authentication; receive-pack and all other sandbox egress are denied.
-- Every mutation validates before write authorization, requires native approval, compares the expected remote HEAD, and lands as one commit or not at all.
-- Treat Slack messages, context files, outputs, eval artifacts, and Vercel logs according to your organization's data policy. Private context is not sent to public search without explicit permission.
-- See [SECURITY.md](SECURITY.md) for reporting guidance and enforced trust boundaries.
+### Can I use it without a context repository?
 
-## Context repository contract
+Yes. Slack-only mode can load the workflows, explain their prerequisites, and run compatible response-only work. Jobs that require saved ICPs, personas, or organization context stop and explain what is missing.
 
-The connected repository is fixed by deployment configuration; users cannot choose another target in a prompt or tool request. Durable mutations are limited to:
+### What changes when I connect GitHub?
 
-```text
-org.md
-AGENTS.md
-CLAUDE.md
-.gitignore
-people/<slug>/person.md
-icps/<slug>.md
-personas/<slug>.md
-suborgs/<slug>/(org.md|icps/<slug>.md|personas/<slug>.md|suborgs/...)
-```
+The agent can read the organization context from the configured repository and propose in-contract context changes through its sole approval-gated write tool.
 
-Root contract files cannot be deleted. A request can touch at most 50 paths, each addition is at most 256 KiB, and combined additions are at most 1 MiB. Repository creation/import, connection configuration, sharing, and whole-repository deletion stay keyboard-only `/gtm-context` operations and are refused in Slack.
+### How does GTM Agent write context safely?
 
-## Local development
+It validates the complete path manifest and expected HEAD, asks for native approval, compares remote `main`, and creates one atomic commit or no write.
 
-Requirements: Node.js 24 and pnpm 10.14.0.
+### Can the agent browse the web or update our CRM?
 
-```bash
-pnpm install --frozen-lockfile
-cp .env.example .env
-pnpm dev
-```
+Research workflows can inspect safe public sources when browsing is available. Research is response-only and does not write to a CRM, context files, Git history, or another external system.
 
-Connect Slack as described in the [Eve Slack guide](https://eve.dev/docs/channels/slack). For persistent context, create a GitHub connector with access to only the disposable development repository, then set both optional GitHub variables. Never use a production repository for integration tests.
+### What does it cost?
 
-Useful commands:
+GTM Agent is free, open source, and [MIT licensed](LICENSE). The bundled GTM Skills carry their separate [MIT license](LICENSES/gtmskills-MIT.txt). Vercel, Slack, GitHub, model, and research-provider usage may be subject to their own plans and charges.
 
-```bash
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm eval                  # live, credentialed; not run in CI
-pnpm check                 # skill integrity + typecheck + tests + build
-```
+## Put the next GTM decision in Slack
 
-## Updating the skill snapshot
+<p align="center">Your team asks in the conversation. GTM Agent brings the workflow, connected context, and next action into the same thread.</p>
 
-`agent/skills/` is generated from the exact nine approved directories in [`gtmskills`](https://github.com/eliasstravik/gtmskills). `skills-lock.json` records the source URL, source commit, exact skill names, vendored MIT license, and SHA-256 of every shipped file. CI runs the offline `skills:check` integrity verifier.
+<p align="center"><a href="docs/getting-started.md"><img src="assets/buttons/deploy-gtm-agent.svg" alt="Deploy GTM Agent" /></a>&nbsp;&nbsp;<a href="https://cal.com/stravik/demo?projects=GTM%20Agent" target="_blank" rel="noopener noreferrer"><img src="assets/buttons/book-a-demo.svg" alt="Book a demo" /></a></p>
 
-Do not copy or edit these files by hand. After the upstream repository publishes its separate MIT license:
+<p align="center"><sub>✓&nbsp;100%&nbsp;free&nbsp;and&nbsp;open&nbsp;source &nbsp; ✓&nbsp;Nine&nbsp;GTM&nbsp;skills,&nbsp;one&nbsp;Slack&nbsp;agent &nbsp; ✓&nbsp;Built&nbsp;for&nbsp;the&nbsp;full&nbsp;GTM&nbsp;motion</sub></p>
 
-```bash
-pnpm skills:sync ../gtmskills
-pnpm skills:check
-```
-
-The sync command rejects an unexpected remote, dirty shipping directories or license content, an uncommitted/non-MIT license, changed skill inventory, symlinks, unexpected target entries, and post-copy hash drift. It builds and verifies a complete candidate snapshot before installing it and restores the prior snapshot if installation verification fails.
-
-**Current release gate:** upstream commit `ebb749fc6abe449d64201b921b1fad2fb34e25d5` has no license file. The source repository has not been modified, no skill source has been copied, and `skills:check` intentionally fails until that external prerequisite is resolved and the integrity lock is regenerated.
-
-## Limitations and troubleshooting
-
-- **The agent fails at startup:** confirm `SLACK_CONNECTOR` is set. For context mode, set both GitHub variables and confirm the repository is `owner/repo`, uses `main`, and has root `org.md`. A partial GitHub pair fails at startup by design.
-- **A write reports a conflict:** another writer advanced `main`; start a fresh Slack thread so the agent reads the new HEAD. There is no automatic merge or retry.
-- **A commit succeeded but the session is stale:** use the returned GitHub commit URL as the durable result and start a fresh Slack thread.
-- **Approval content looks truncated:** Slack may shorten the file payload display; the concise summary and complete path manifest appear first, and approval still covers the full request.
-- **`pnpm check` fails at `skills:check`:** the upstream MIT-license release gate is unresolved, or the vendored snapshot drifted. Never bypass the gate or hand-edit the snapshot.
-- **The GitHub connector is not created by the Deploy Button:** use `vercel connect create github` or Vercel's Connect settings, grant one repository, set `GITHUB_CONNECTOR`, and redeploy.
-
-The template intentionally has no browser UI, alternate memory, database, Blob storage, generic GitHub operations, schedules, subagents, multiple contexts, or repository administration from Slack.
-
-## Architecture and file map
-
-```text
-agent/agent.ts                         model selection
-agent/channels/slack.ts                standard Eve Slack ingress
-agent/sandbox.ts                       optional read-only context hydration
-agent/lib/config.ts                    paired deployment configuration
-agent/lib/context-paths.ts             GTM file contract and mutation bounds
-agent/lib/context-workspace.ts         credential-free clone/preflight/refresh
-agent/lib/github-commit.ts             expected-HEAD atomic GraphQL commit
-agent/tools/apply_gtm_context_changes.ts sole approval-gated write surface
-agent/skills/                          generated reviewed skill snapshot
-evals/                                 live Slack behavior checks
-scripts/sync-gtmskills.mjs             license-aware snapshot and hash workflow
-tests/                                 deterministic and opt-in integration checks
-```
-
-The agent runs on `anthropic/claude-sonnet-5`; Eve owns `/eve/v1/health` and `/eve/v1/slack`.
-
-## Evals and integration verification
-
-Live evals cover Slack-only prerequisites, the fixed repository, approval and denial, update refusal, and private-data handling. They require configured Eve/Vercel/model credentials and therefore remain outside CI. `tests/github-context.integration.test.mjs` is an additional real-GitHub atomic-commit adapter check; it runs only when `RUN_GTM_CONTEXT_INTEGRATION=1`, `GTM_INTEGRATION_CONFIRM=disposable-fixture`, a repository ending in `-gtm-agent-fixture`, and a fixture token are all supplied. Full Connect, Sandbox, and Slack integration remains an external release gate.
-
-CI reports skill integrity, typecheck, tests, and build as separate steps. The unresolved upstream license keeps the integrity step red without hiding results from the other checks.
-
-## Release checklist
-
-Local implementation checks:
-
-- [x] Minimal Eve architecture and dependency versions are pinned.
-- [x] Repository-bound, approval-gated, atomic writes fail closed on conflict.
-- [x] Sandbox access is credential-free and deny-all outside exact clone/refresh requests.
-- [x] Unit, structural, build, eval-definition, and opt-in integration coverage are present.
-- [x] Vendored-skill sync and offline integrity verification are implemented.
-
-External gates before making the template public:
-
-- [ ] Publish a separate MIT license in `gtmskills`, run `skills:sync`, review the lock, and make `pnpm check` green.
-- [ ] Validate both Deploy Buttons in fresh Vercel projects and verify the documented no-trigger GitHub fallback.
-- [ ] Run Slack-only and connected-repository evals with disposable credentials.
-- [ ] Exercise approve, deny, stale-head conflict, refresh-failure, missing-context, and private-data scenarios in Slack.
-- [ ] Confirm GitHub connector grant scoping and inspect Vercel/Sandbox logs for credential or private-content leakage.
-- [ ] Add a scrubbed screenshot and verify the final repository is public under MIT before announcing it.
-
-## License
-
-The template code is [MIT licensed](LICENSE). Vendored skills must carry the separately published upstream MIT license; they are deliberately absent until that prerequisite is satisfied.
+<p align="center"><small>⭐ Used by top GTM teams</small></p>
