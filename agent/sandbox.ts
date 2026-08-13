@@ -5,8 +5,8 @@ import { vercel } from "eve/sandbox/vercel";
 import { getConfiguration } from "./lib/config.ts";
 import {
   createGitBasicAuthorization,
-  hydrateContextWorkspace,
-} from "./lib/context-workspace.ts";
+  hydrateWorkspaceCheckout,
+} from "./lib/workspace-checkout.ts";
 
 export default defineSandbox({
   backend: vercel({
@@ -17,26 +17,26 @@ export default defineSandbox({
     "A credential-free GTM workspace with deny-all sandbox network access.",
   async onSession({ use }) {
     const configuration = getConfiguration();
-    if (configuration.context === null) {
+    if (configuration.workspace === null) {
       await use({ networkPolicy: "deny-all" });
       return;
     }
 
-    const token = await getToken(configuration.context.connector, {
+    const token = await getToken(configuration.workspace.connector, {
       subject: { type: "app" },
       scopes: ["contents:read", "metadata:read"],
       authorizationDetails: [
         {
           type: "github_app_installation",
-          repositories: [configuration.context.repository],
+          repositories: [configuration.workspace.repository],
         },
       ],
     });
     const authorization = createGitBasicAuthorization(token);
 
-    await hydrateContextWorkspace({
+    await hydrateWorkspaceCheckout({
       authorization,
-      context: configuration.context,
+      workspace: configuration.workspace,
       use,
     });
   },

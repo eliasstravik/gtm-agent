@@ -32,19 +32,19 @@ test("sandbox is Vercel-backed, deny-all by default, and repository-optional", a
   assert.match(sandbox, /defineSandbox/);
   assert.match(sandbox, /vercel\(/);
   assert.match(sandbox, /networkPolicy:\s*"deny-all"/);
-  assert.match(sandbox, /if \(configuration\.context === null\)/);
+  assert.match(sandbox, /if \(configuration\.workspace === null\)/);
   assert.match(sandbox, /contents:read/);
   assert.match(sandbox, /metadata:read/);
   assert.doesNotMatch(sandbox, /contents:write/);
   assert.match(sandbox, /authorizationDetails/);
-  assert.match(sandbox, /hydrateContextWorkspace/);
+  assert.match(sandbox, /hydrateWorkspaceCheckout/);
 });
 
 test("the sole authored write tool is approval-gated and repository-bound", async () => {
   const tools = await readdir(new URL("agent/tools/", root));
-  assert.deepEqual(tools.sort(), ["apply_gtm_context_changes.ts"]);
+  assert.deepEqual(tools.sort(), ["apply_gtm_workspace_changes.ts"]);
 
-  const tool = await read("agent/tools/apply_gtm_context_changes.ts");
+  const tool = await read("agent/tools/apply_gtm_workspace_changes.ts");
   assert.match(tool, /approval:\s*always\(\)/);
   assert.match(tool, /summary[\s\S]+manifest[\s\S]+expectedHead[\s\S]+message[\s\S]+additions[\s\S]+deletions/);
   assert.match(tool, /contents:read/);
@@ -54,7 +54,7 @@ test("the sole authored write tool is approval-gated and repository-bound", asyn
   assert.match(tool, /retry:\s*\{ enabled: false \}/);
   assert.match(tool, /request:\s*\{ timeout: 15_000 \}/);
   assert.match(tool, /createCommitOnMain/);
-  assert.match(tool, /runApprovedContextMutation/);
+  assert.match(tool, /runApprovedWorkspaceMutation/);
 
   const schemaBlock = tool.slice(
     tool.indexOf("const inputSchema"),
@@ -65,29 +65,63 @@ test("the sole authored write tool is approval-gated and repository-bound", asyn
   }
 });
 
+test("workspace vocabulary owns the runtime, test, and eval filenames", async () => {
+  const currentPaths = [
+    "agent/lib/workspace-paths.ts",
+    "agent/lib/workspace-checkout.ts",
+    "agent/tools/apply_gtm_workspace_changes.ts",
+    "tests/workspace-paths.test.mjs",
+    "tests/workspace-checkout.test.mjs",
+    "tests/github-workspace.integration.test.mjs",
+    "evals/fixed-workspace.eval.ts",
+    "evals/no-workspace.eval.ts",
+    "scripts/sync-gtm-skills.mjs",
+  ];
+  const currentResults = await Promise.all(currentPaths.map(exists));
+  currentPaths.forEach((path, index) =>
+    assert.equal(currentResults[index], true, path),
+  );
+
+  const formerPaths = [
+    "agent/lib/context-paths.ts",
+    "agent/lib/context-workspace.ts",
+    "agent/tools/apply_gtm_context_changes.ts",
+    "tests/context-paths.test.mjs",
+    "tests/context-workspace.test.mjs",
+    "tests/github-context.integration.test.mjs",
+    "evals/fixed-context.eval.ts",
+    "evals/no-context.eval.ts",
+    "scripts/sync-gtmskills.mjs",
+  ];
+  const formerResults = await Promise.all(formerPaths.map(exists));
+  formerPaths.forEach((path, index) =>
+    assert.equal(formerResults[index], false, path),
+  );
+});
+
 test("an invalid connected mutation is rejected before sandbox or token access", async () => {
   const prior = {
     github: process.env.GITHUB_CONNECTOR,
-    repository: process.env.GTM_CONTEXT_REPOSITORY,
+    repository: process.env.GTM_WORKSPACE_REPOSITORY,
     slack: process.env.SLACK_CONNECTOR,
   };
   process.env.SLACK_CONNECTOR = "slack/gtm-agent";
   process.env.GITHUB_CONNECTOR = "github/gtm-agent";
-  process.env.GTM_CONTEXT_REPOSITORY = "acme-inc/gtm-context";
+  process.env.GTM_WORKSPACE_REPOSITORY = "acme-inc/gtm-workspace";
 
   try {
     const { default: tool } = await import(
-      "../agent/tools/apply_gtm_context_changes.ts"
+      "../agent/tools/apply_gtm_workspace_changes.ts"
     );
     let openedSandbox = false;
     await assert.rejects(
       tool.execute(
         {
           summary: "Unsafe write",
-          manifest: [{ path: "../org.md", operation: "write" }],
+          manifest: [{ path: "../ORG.md", operation: "write" }],
           expectedHead: "a".repeat(40),
           message: "Unsafe write",
-          additions: [{ path: "../org.md", content: "unsafe\n" }],
+          additions: [{ path: "../ORG.md", content: "unsafe\n" }],
           deletions: [],
         },
         {
@@ -97,36 +131,36 @@ test("an invalid connected mutation is rejected before sandbox or token access",
           },
         },
       ),
-      /GTM context path|path is outside/i,
+      /GTM workspace path|path is outside/i,
     );
     assert.equal(openedSandbox, false);
   } finally {
     restore("GITHUB_CONNECTOR", prior.github);
-    restore("GTM_CONTEXT_REPOSITORY", prior.repository);
+    restore("GTM_WORKSPACE_REPOSITORY", prior.repository);
     restore("SLACK_CONNECTOR", prior.slack);
   }
 });
 
 test("the tool returns setup guidance before opening a sandbox in Slack-only mode", async () => {
   const priorConnector = process.env.GITHUB_CONNECTOR;
-  const priorRepository = process.env.GTM_CONTEXT_REPOSITORY;
+  const priorRepository = process.env.GTM_WORKSPACE_REPOSITORY;
   const priorSlackConnector = process.env.SLACK_CONNECTOR;
   process.env.SLACK_CONNECTOR = "slack/gtm-agent";
   delete process.env.GITHUB_CONNECTOR;
-  delete process.env.GTM_CONTEXT_REPOSITORY;
+  delete process.env.GTM_WORKSPACE_REPOSITORY;
 
   try {
     const { default: tool } = await import(
-      "../agent/tools/apply_gtm_context_changes.ts"
+      "../agent/tools/apply_gtm_workspace_changes.ts"
     );
     let openedSandbox = false;
     const result = await tool.execute(
       {
         summary: "Write an org update",
-        manifest: [{ path: "org.md", operation: "write" }],
+        manifest: [{ path: "ORG.md", operation: "write" }],
         expectedHead: "a".repeat(40),
         message: "Update organization",
-        additions: [{ path: "org.md", content: "# Organization\n" }],
+        additions: [{ path: "ORG.md", content: "# Organization\n" }],
         deletions: [],
       },
       {
@@ -141,7 +175,7 @@ test("the tool returns setup guidance before opening a sandbox in Slack-only mod
     assert.equal(result.status, "setup_required");
   } finally {
     restore("GITHUB_CONNECTOR", priorConnector);
-    restore("GTM_CONTEXT_REPOSITORY", priorRepository);
+    restore("GTM_WORKSPACE_REPOSITORY", priorRepository);
     restore("SLACK_CONNECTOR", priorSlackConnector);
   }
 });

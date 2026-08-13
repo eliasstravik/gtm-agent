@@ -4,15 +4,15 @@ import test from "node:test";
 import { Octokit } from "octokit";
 
 import {
-  ContextConflictError,
+  WorkspaceConflictError,
   createCommitOnMain,
 } from "../agent/lib/github-commit.ts";
 
-const enabled = process.env.RUN_GTM_CONTEXT_INTEGRATION === "1";
+const enabled = process.env.RUN_GTM_WORKSPACE_INTEGRATION === "1";
 
 test(
   "atomic GitHub create, stale-head refusal, and cleanup against a disposable fixture",
-  { skip: enabled ? false : "set RUN_GTM_CONTEXT_INTEGRATION=1 for the credentialed fixture test" },
+  { skip: enabled ? false : "set RUN_GTM_WORKSPACE_INTEGRATION=1 for the credentialed fixture test" },
   async () => {
     assert.equal(
       process.env.GTM_INTEGRATION_CONFIRM,
@@ -35,7 +35,7 @@ test(
       retry: { enabled: false },
       request: { timeout: 15_000 },
     });
-    const path = "people/eve-smoke/person.md";
+    const path = "members/eve-smoke/MEMBER.md";
     assert.equal(
       await pathExists(octokit, owner, repo, path),
       false,
@@ -65,7 +65,7 @@ test(
           additions: [{ path, content: "# Stale write must not land\n" }],
           deletions: [],
         }),
-        ContextConflictError,
+        WorkspaceConflictError,
       );
     } finally {
       if (await pathExists(octokit, owner, repo, path)) {

@@ -16,9 +16,11 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const EXPECTED_SOURCE_URL =
-  "https://github.com/eliasstravik/gtmskills.git";
+  "https://github.com/eliasstravik/gtm-skills.git";
 
-export const EXPECTED_SKILLS = [
+export const EXPECTED_SKILLS = ["gtm-icp", "gtm-persona", "gtm-workspace"];
+
+const LEGACY_TRANSITION_SKILLS = [
   "gtm-account-research",
   "gtm-account-scoring",
   "gtm-account-segmentation",
@@ -32,7 +34,7 @@ export const EXPECTED_SKILLS = [
 
 const scriptRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const lockName = "skills-lock.json";
-const vendoredLicensePath = "LICENSES/gtmskills-MIT.txt";
+const vendoredLicensePath = "LICENSES/gtm-skills-MIT.txt";
 const legacyVendoredLicenseName = "LICENSE";
 
 export async function syncVendoredSkills(sourceRoot, projectRoot = scriptRoot) {
@@ -43,7 +45,7 @@ export async function syncVendoredSkills(sourceRoot, projectRoot = scriptRoot) {
   const sourceLicense = await findMitLicense(source);
   assertShippingPathsClean(source, sourceLicense);
   await assertExpectedSourceSkills(source);
-  await assertNoUnexpectedTargetSkills(target, { allowLegacyLicense: true });
+  await assertNoUnexpectedTargetSkills(target, { allowTransitionEntries: true });
 
   await mkdir(target, { recursive: true });
   const candidateRoot = await mkdtemp(join(target, ".gtm-skills-candidate-"));
@@ -152,7 +154,7 @@ async function assertExpectedSourceSkills(source) {
 
 async function assertNoUnexpectedTargetSkills(
   projectRoot,
-  { allowLegacyLicense = false } = {},
+  { allowTransitionEntries = false } = {},
 ) {
   const skillsDirectory = join(projectRoot, "agent", "skills");
   let entries;
@@ -163,19 +165,39 @@ async function assertNoUnexpectedTargetSkills(
     throw error;
   }
 
+  const lockedTransitionSkills = allowTransitionEntries
+    ? await readLegacyTransitionSkillNames(projectRoot)
+    : new Set();
   const unexpected = entries.filter(
     (entry) =>
       !(
-        allowLegacyLicense &&
+        allowTransitionEntries &&
         entry.isFile() &&
         entry.name === legacyVendoredLicenseName
       ) &&
-      !(entry.isDirectory() && EXPECTED_SKILLS.includes(entry.name)),
+      !(
+        entry.isDirectory() &&
+        (EXPECTED_SKILLS.includes(entry.name) ||
+          lockedTransitionSkills.has(entry.name))
+      ),
   );
   if (unexpected.length > 0) {
     throw new Error(
       `Unexpected entry under agent/skills: ${unexpected.map((entry) => entry.name).join(", ")}.`,
     );
+  }
+}
+
+async function readLegacyTransitionSkillNames(projectRoot) {
+  try {
+    const lock = JSON.parse(await readFile(join(projectRoot, lockName), "utf8"));
+    if (!isDeepStrictEqual(lock.skills, LEGACY_TRANSITION_SKILLS)) {
+      return new Set();
+    }
+    return new Set(LEGACY_TRANSITION_SKILLS);
+  } catch (error) {
+    if (error?.code === "ENOENT" || error instanceof SyntaxError) return new Set();
+    throw error;
   }
 }
 
@@ -192,7 +214,7 @@ async function findMitLicense(source) {
     }
   }
   throw new Error(
-    "The upstream gtmskills checkout has no MIT license. Do not vendor it until the separate licensing prerequisite is complete.",
+    "The upstream gtm-skills checkout has no MIT license. Do not vendor it until the separate licensing prerequisite is complete.",
   );
 }
 
@@ -209,7 +231,7 @@ function assertExpectedRemote(source) {
   const remote = git(source, ["remote", "get-url", "origin"]);
   if (remote !== EXPECTED_SOURCE_URL) {
     throw new Error(
-      `Refusing unexpected gtmskills source remote: ${JSON.stringify(remote)}.`,
+      `Refusing unexpected gtm-skills source remote: ${JSON.stringify(remote)}.`,
     );
   }
 }
@@ -369,9 +391,9 @@ async function main() {
   }
 
   if (args.length > 1) {
-    throw new Error("Usage: node scripts/sync-gtmskills.mjs [source-path] | --check");
+    throw new Error("Usage: node scripts/sync-gtm-skills.mjs [source-path] | --check");
   }
-  const source = args[0] ?? resolve(scriptRoot, "..", "gtmskills");
+  const source = args[0] ?? resolve(scriptRoot, "..", "gtm-skills");
   const lock = await syncVendoredSkills(source, scriptRoot);
   console.log(
     `Vendored ${lock.skills.length} GTM skills from ${lock.source.commit}.`,

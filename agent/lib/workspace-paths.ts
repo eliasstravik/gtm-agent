@@ -6,42 +6,49 @@ export const MAX_TOTAL_BYTES = 1024 * 1024;
 
 const SLUG = "[a-z0-9]+(?:-[a-z0-9]+)*";
 const NODE_PREFIX = `(?:suborgs/${SLUG}/)*`;
-const NODE_FILE_PATTERN = new RegExp(
-  `^${NODE_PREFIX}(?:org\\.md|icps/${SLUG}\\.md|personas/${SLUG}\\.md)$`,
+const WRITABLE_NODE_FILE_PATTERN = new RegExp(
+  `^${NODE_PREFIX}(?:ORG\\.md|icps/${SLUG}(?:\\.md|/ICP\\.md)|personas/${SLUG}(?:\\.md|/PERSONA\\.md)|members/${SLUG}/MEMBER\\.md)$`,
 );
-const PERSON_PATTERN = new RegExp(`^people/${SLUG}/person\\.md$`);
-const ROOT_CONTRACT_FILES = new Set([
+const LEGACY_DELETE_PATTERN = new RegExp(
+  `^${NODE_PREFIX}(?:org\\.md|people/${SLUG}/(?:person|PERSON)\\.md)$`,
+);
+const ROOT_ONLY_CONTRACT_FILES = new Set([
   ".gitignore",
   "AGENTS.md",
   "CLAUDE.md",
-  "org.md",
 ]);
-const PROTECTED_DELETIONS = new Set(ROOT_CONTRACT_FILES);
+const PROTECTED_ROOT_DELETIONS = new Set([
+  ...ROOT_ONLY_CONTRACT_FILES,
+  "ORG.md",
+]);
 
-export type ContextManifestEntry = {
+export type WorkspaceManifestEntry = {
   readonly path: string;
   readonly operation: "write" | "delete";
 };
 
-export type ContextAddition = {
+export type WorkspaceAddition = {
   readonly path: string;
   readonly content: string;
 };
 
-export type ContextDeletion = {
+export type WorkspaceDeletion = {
   readonly path: string;
 };
 
-export type ContextMutation = {
+export type WorkspaceMutation = {
   readonly summary: string;
-  readonly manifest: readonly ContextManifestEntry[];
+  readonly manifest: readonly WorkspaceManifestEntry[];
   readonly expectedHead: string;
   readonly message: string;
-  readonly additions: readonly ContextAddition[];
-  readonly deletions: readonly ContextDeletion[];
+  readonly additions: readonly WorkspaceAddition[];
+  readonly deletions: readonly WorkspaceDeletion[];
 };
 
-export function validateContextPath(path: string): string {
+export function validateWorkspacePath(
+  path: string,
+  operation: WorkspaceManifestEntry["operation"] = "write",
+): string {
   if (
     path.length === 0 ||
     path.length > 240 ||
@@ -51,21 +58,21 @@ export function validateContextPath(path: string): string {
     posix.normalize(path) !== path ||
     path.split("/").includes(".git")
   ) {
-    throw new Error(`Invalid GTM context path: ${JSON.stringify(path)}.`);
+    throw new Error(`Invalid GTM workspace path: ${JSON.stringify(path)}.`);
   }
 
   if (
-    !ROOT_CONTRACT_FILES.has(path) &&
-    !PERSON_PATTERN.test(path) &&
-    !NODE_FILE_PATTERN.test(path)
+    !ROOT_ONLY_CONTRACT_FILES.has(path) &&
+    !WRITABLE_NODE_FILE_PATTERN.test(path) &&
+    !(operation === "delete" && LEGACY_DELETE_PATTERN.test(path))
   ) {
-    throw new Error(`Path is outside the GTM context contract: ${path}.`);
+    throw new Error(`Path is outside the GTM workspace contract: ${path}.`);
   }
 
   return path;
 }
 
-export function validateContextMutation<T extends ContextMutation>(input: T): T {
+export function validateWorkspaceMutation<T extends WorkspaceMutation>(input: T): T {
   if (input.summary.trim().length === 0 || input.summary.length > 240) {
     throw new Error("Mutation summary must contain 1–240 characters.");
   }
@@ -84,10 +91,12 @@ export function validateContextMutation<T extends ContextMutation>(input: T): T 
   const additionPaths = validateUniquePaths(
     input.additions.map((entry) => entry.path),
     "addition",
+    "write",
   );
   const deletionPaths = validateUniquePaths(
     input.deletions.map((entry) => entry.path),
     "deletion",
+    "delete",
   );
 
   for (const path of additionPaths) {
@@ -112,18 +121,27 @@ export function validateContextMutation<T extends ContextMutation>(input: T): T 
   }
 
   for (const path of deletionPaths) {
-    if (PROTECTED_DELETIONS.has(path)) {
+    if (PROTECTED_ROOT_DELETIONS.has(path)) {
       throw new Error(`Root contract file cannot be deleted: ${path}.`);
     }
+  }
+
+  if (deletionPaths.has("org.md") && !additionPaths.has("ORG.md")) {
+    throw new Error(
+      "Deleting root org.md requires writing root ORG.md in the same mutation.",
+    );
   }
 
   if (input.manifest.length !== payloadCount) {
     throw new Error("Manifest must contain exactly one entry for every payload path.");
   }
 
-  const manifestOperations = new Map<string, ContextManifestEntry["operation"]>();
+  const manifestOperations = new Map<
+    string,
+    WorkspaceManifestEntry["operation"]
+  >();
   for (const entry of input.manifest) {
-    const path = validateContextPath(entry.path);
+    const path = validateWorkspacePath(entry.path, entry.operation);
     const prior = manifestOperations.get(path);
     if (prior !== undefined) {
       if (prior !== entry.operation) {
@@ -148,10 +166,14 @@ export function validateContextMutation<T extends ContextMutation>(input: T): T 
   return input;
 }
 
-function validateUniquePaths(paths: readonly string[], label: string): Set<string> {
+function validateUniquePaths(
+  paths: readonly string[],
+  label: string,
+  operation: WorkspaceManifestEntry["operation"],
+): Set<string> {
   const unique = new Set<string>();
   for (const candidate of paths) {
-    const path = validateContextPath(candidate);
+    const path = validateWorkspacePath(candidate, operation);
     if (unique.has(path)) {
       throw new Error(`Payload contains a duplicate ${label} path: ${path}.`);
     }
