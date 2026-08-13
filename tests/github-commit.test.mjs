@@ -2,25 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  ContextConflictError,
+  WorkspaceConflictError,
   createCommitOnMain,
-  runApprovedContextMutation,
+  runApprovedWorkspaceMutation,
 } from "../agent/lib/github-commit.ts";
-import { EgressNotClosedError } from "../agent/lib/context-workspace.ts";
+import { EgressNotClosedError } from "../agent/lib/workspace-checkout.ts";
 
 const input = {
   summary: "Add an enterprise ICP",
-  manifest: [{ path: "icps/enterprise.md", operation: "write" }],
+  manifest: [{ path: "icps/enterprise/ICP.md", operation: "write" }],
   expectedHead: "a".repeat(40),
   message: "Add enterprise ICP",
-  additions: [{ path: "icps/enterprise.md", content: "# Enterprise\n" }],
+  additions: [{ path: "icps/enterprise/ICP.md", content: "# Enterprise\n" }],
   deletions: [],
 };
 
 test("validation and local readiness happen before remote access", async () => {
   const events = [];
   await assert.rejects(
-    runApprovedContextMutation(
+    runApprovedWorkspaceMutation(
       { ...input, expectedHead: "short" },
       {
         async assertWorkspaceReady() {
@@ -46,7 +46,7 @@ test("validation and local readiness happen before remote access", async () => {
 test("a stale remote head stops without retrying or committing", async () => {
   const events = [];
   await assert.rejects(
-    runApprovedContextMutation(input, {
+    runApprovedWorkspaceMutation(input, {
       async assertWorkspaceReady() {
         events.push("local");
       },
@@ -61,7 +61,7 @@ test("a stale remote head stops without retrying or committing", async () => {
       async refresh() {},
       async markStale() {},
     }),
-    ContextConflictError,
+    WorkspaceConflictError,
   );
   assert.deepEqual(events, ["local", "remote"]);
 });
@@ -85,12 +85,12 @@ test("multiple additions and deletions become one GraphQL mutation", async () =>
     owner: "acme",
     repo: "repo",
     expectedHead: input.expectedHead,
-    message: "Update context",
+    message: "Update workspace",
     additions: [
-      { path: "icps/a.md", content: "# A\n" },
-      { path: "personas/b.md", content: "# B\n" },
+      { path: "icps/a/ICP.md", content: "# A\n" },
+      { path: "personas/b/PERSONA.md", content: "# B\n" },
     ],
-    deletions: [{ path: "personas/c.md" }],
+    deletions: [{ path: "personas/c/PERSONA.md" }],
   });
 
   assert.equal(calls.length, 1);
@@ -98,7 +98,7 @@ test("multiple additions and deletions become one GraphQL mutation", async () =>
   assert.equal(calls[0].variables.input.branch.branchName, "main");
   assert.equal(calls[0].variables.input.expectedHeadOid, input.expectedHead);
   assert.deepEqual(calls[0].variables.input.fileChanges.deletions, [
-    { path: "personas/c.md" },
+    { path: "personas/c/PERSONA.md" },
   ]);
   assert.equal(
     Buffer.from(
@@ -122,13 +122,13 @@ test("GitHub STALE_DATA is normalized to the same fresh-thread conflict", async 
         owner: "acme",
         repo: "repo",
         expectedHead: input.expectedHead,
-        message: "Update context",
+        message: "Update workspace",
         additions: input.additions,
         deletions: [],
       },
     ),
     (error) => {
-      assert.ok(error instanceof ContextConflictError);
+      assert.ok(error instanceof WorkspaceConflictError);
       assert.match(error.message, /fresh thread/i);
       return true;
     },
@@ -137,7 +137,7 @@ test("GitHub STALE_DATA is normalized to the same fresh-thread conflict", async 
 
 test("remote success plus refresh failure is reported as durable and marks stale", async () => {
   const events = [];
-  const result = await runApprovedContextMutation(input, {
+  const result = await runApprovedWorkspaceMutation(input, {
     async assertWorkspaceReady() {
       events.push("local");
     },
@@ -170,7 +170,7 @@ test("remote success plus refresh failure is reported as durable and marks stale
 test("an egress-closure failure cannot be downgraded to a stale-session success", async () => {
   let markedStale = false;
   await assert.rejects(
-    runApprovedContextMutation(input, {
+    runApprovedWorkspaceMutation(input, {
       async assertWorkspaceReady() {},
       async getRemoteHead() {
         return input.expectedHead;
@@ -195,7 +195,7 @@ test("an egress-closure failure cannot be downgraded to a stale-session success"
 
 test("successful remote write refreshes the session once", async () => {
   const events = [];
-  const result = await runApprovedContextMutation(input, {
+  const result = await runApprovedWorkspaceMutation(input, {
     async assertWorkspaceReady() {
       events.push("local");
     },

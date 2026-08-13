@@ -14,8 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
     "eval": "eve eval",
-    "skills:sync": "node scripts/sync-gtmskills.mjs",
-    "skills:check": "node scripts/sync-gtmskills.mjs --check",
+    "skills:sync": "node scripts/sync-gtm-skills.mjs",
+    "skills:check": "node scripts/sync-gtm-skills.mjs --check",
     "check": "pnpm skills:check && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {

@@ -5,13 +5,13 @@ import {
   CONFIGURATION_ERROR,
   SLACK_CONFIGURATION_ERROR,
   parseConfiguration,
-  parseContextRepository,
+  parseWorkspaceRepository,
 } from "../agent/lib/config.ts";
 
 test("Slack-only mode is valid without GitHub configuration", () => {
   assert.deepEqual(parseConfiguration({ SLACK_CONNECTOR: "slack/gtm-agent" }), {
     slackConnector: "slack/gtm-agent",
-    context: null,
+    workspace: null,
   });
 });
 
@@ -28,18 +28,18 @@ test("connected mode derives immutable repository metadata", () => {
     parseConfiguration({
       SLACK_CONNECTOR: "slack/gtm-agent",
       GITHUB_CONNECTOR: "github/gtm-agent",
-      GTM_CONTEXT_REPOSITORY: "acme-inc/gtm-context",
+      GTM_WORKSPACE_REPOSITORY: "acme-inc/gtm-workspace",
     }),
     {
       slackConnector: "slack/gtm-agent",
-      context: {
+      workspace: {
         branch: "main",
-        checkoutDirectory: "$HOME/.gtm/gtm-context",
+        checkoutDirectory: "$HOME/.gtm/gtm-workspace",
         connector: "github/gtm-agent",
         owner: "acme-inc",
-        repo: "gtm-context",
-        repository: "acme-inc/gtm-context",
-        staleMarker: "$HOME/.gtm/.gtm-context.stale",
+        repo: "gtm-workspace",
+        repository: "acme-inc/gtm-workspace",
+        staleMarker: "$HOME/.gtm/.gtm-workspace.stale",
       },
     },
   );
@@ -58,17 +58,17 @@ test("partial GitHub configuration fails with one remediation", () => {
     () =>
       parseConfiguration({
         SLACK_CONNECTOR: "slack/gtm-agent",
-        GTM_CONTEXT_REPOSITORY: "acme-inc/gtm-context",
+        GTM_WORKSPACE_REPOSITORY: "acme-inc/gtm-workspace",
       }),
-    /set both GITHUB_CONNECTOR and GTM_CONTEXT_REPOSITORY/i,
+    /set both GITHUB_CONNECTOR and GTM_WORKSPACE_REPOSITORY/i,
   );
 });
 
 test("repository parser accepts one strict owner/repo", () => {
-  assert.deepEqual(parseContextRepository("Acme-1/gtm.context_2"), {
+  assert.deepEqual(parseWorkspaceRepository("Acme-1/gtm.workspace_2"), {
     owner: "Acme-1",
-    repo: "gtm.context_2",
-    repository: "Acme-1/gtm.context_2",
+    repo: "gtm.workspace_2",
+    repository: "Acme-1/gtm.workspace_2",
   });
 });
 
@@ -82,9 +82,21 @@ test("repository parser rejects ambiguous or unsafe forms", () => {
     "acme/../repo",
     "acme/repo?ref=main",
     "acme/repo#main",
-    "acme repo/context",
+    "acme repo/workspace",
     "",
   ]) {
-    assert.throws(() => parseContextRepository(value), /owner\/repo/);
+    assert.throws(() => parseWorkspaceRepository(value), /owner\/repo/);
   }
+});
+
+test("the retired context variable does not configure a workspace", () => {
+  assert.throws(
+    () =>
+      parseConfiguration({
+        SLACK_CONNECTOR: "slack/gtm-agent",
+        GITHUB_CONNECTOR: "github/gtm-agent",
+        GTM_CONTEXT_REPOSITORY: "acme-inc/legacy-context",
+      }),
+    /GTM_WORKSPACE_REPOSITORY/,
+  );
 });

@@ -9,26 +9,26 @@ import {
   MAX_FILE_BYTES,
   MAX_PATHS,
   MAX_TOTAL_BYTES,
-  validateContextMutation,
-} from "../lib/context-paths.ts";
+  validateWorkspaceMutation,
+} from "../lib/workspace-paths.ts";
 import {
-  assertContextWorkspaceReady,
+  assertWorkspaceCheckoutReady,
   createGitBasicAuthorization,
   EgressNotClosedError,
-  markContextWorkspaceStale,
-  refreshContextWorkspace,
-} from "../lib/context-workspace.ts";
+  markWorkspaceCheckoutStale,
+  refreshWorkspaceCheckout,
+} from "../lib/workspace-checkout.ts";
 import {
-  ContextConflictError,
+  WorkspaceConflictError,
   createCommitOnMain,
-  runApprovedContextMutation,
+  runApprovedWorkspaceMutation,
 } from "../lib/github-commit.ts";
 
 const pathSchema = z
   .string()
   .min(1)
   .max(240)
-  .describe("Repository-relative GTM context path from the allowed contract.");
+  .describe("Repository-relative GTM workspace path from the allowed contract.");
 
 const inputSchema = z
   .object({
@@ -89,39 +89,39 @@ const inputSchema = z
 
 export default defineTool({
   description:
-    "Apply one approval-gated, atomic set of GTM context file writes and deletions to the configured repository on main.",
+    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main.",
   inputSchema,
   approval: always(),
   async execute(input, ctx) {
     const configuration = getConfiguration();
-    if (configuration.context === null) {
+    if (configuration.workspace === null) {
       return {
         status: "setup_required" as const,
         message:
-          "No GTM context repository is configured. Connect an existing repository before trying to save context changes.",
+          "No GTM workspace repository is configured. Connect an existing repository before trying to save workspace changes.",
       };
     }
 
-    const context = configuration.context;
-    const mutation = validateContextMutation(input);
+    const workspace = configuration.workspace;
+    const mutation = validateWorkspaceMutation(input);
     const sandbox = await ctx.getSandbox();
-    const token = await getToken(context.connector, {
+    const token = await getToken(workspace.connector, {
       subject: { type: "app" },
       scopes: ["contents:read", "contents:write", "metadata:read"],
       authorizationDetails: [
         {
           type: "github_app_installation",
-          repositories: [context.repository],
+          repositories: [workspace.repository],
         },
       ],
     });
-    const refreshToken = await getToken(context.connector, {
+    const refreshToken = await getToken(workspace.connector, {
       subject: { type: "app" },
       scopes: ["contents:read", "metadata:read"],
       authorizationDetails: [
         {
           type: "github_app_installation",
-          repositories: [context.repository],
+          repositories: [workspace.repository],
         },
       ],
     });
@@ -133,49 +133,49 @@ export default defineTool({
     });
 
     try {
-      return await runApprovedContextMutation(mutation, {
+      return await runApprovedWorkspaceMutation(mutation, {
         assertWorkspaceReady: (expectedHead, paths) =>
-          assertContextWorkspaceReady({
-            context,
+          assertWorkspaceCheckoutReady({
+            workspace,
             expectedHead,
             paths,
             sandbox,
           }),
         async getRemoteHead() {
           const response = await octokit.rest.git.getRef({
-            owner: context.owner,
-            repo: context.repo,
-            ref: `heads/${context.branch}`,
+            owner: workspace.owner,
+            repo: workspace.repo,
+            ref: `heads/${workspace.branch}`,
           });
           return response.data.object.sha;
         },
         createCommit: (mutation) =>
           createCommitOnMain(octokit, {
-            owner: context.owner,
-            repo: context.repo,
+            owner: workspace.owner,
+            repo: workspace.repo,
             expectedHead: mutation.expectedHead,
             message: mutation.message,
             additions: mutation.additions,
             deletions: mutation.deletions,
           }),
         refresh: (commitSha) =>
-          refreshContextWorkspace({
+          refreshWorkspaceCheckout({
             authorization,
             commitSha,
-            context,
+            workspace,
             sandbox,
           }),
-        markStale: () => markContextWorkspaceStale(sandbox, context),
+        markStale: () => markWorkspaceCheckoutStale(sandbox, workspace),
       });
     } catch (error) {
-      if (error instanceof ContextConflictError) throw error;
+      if (error instanceof WorkspaceConflictError) throw error;
       if (error instanceof EgressNotClosedError) {
         throw new Error(
           "GitHub saved the complete change, but sandbox egress could not be closed. End this session immediately and inspect the configured repository before any retry.",
         );
       }
       throw new Error(
-        "The approved GTM context change could not be confirmed. Inspect the configured repository before retrying, then start a fresh Slack thread; do not assume a retry is safe.",
+        "The approved GTM workspace change could not be confirmed. Inspect the configured repository before retrying, then start a fresh Slack thread; do not assume a retry is safe.",
       );
     }
   },

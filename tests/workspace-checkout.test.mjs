@@ -6,23 +6,23 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
-  assertContextWorkspaceReady,
+  assertWorkspaceCheckoutReady,
   createGitBasicAuthorization,
   createGitNetworkPolicy,
   EgressNotClosedError,
-  hydrateContextWorkspace,
-  refreshContextWorkspace,
-  verifyContextWorkspace,
-} from "../agent/lib/context-workspace.ts";
+  hydrateWorkspaceCheckout,
+  refreshWorkspaceCheckout,
+  verifyWorkspaceCheckout,
+} from "../agent/lib/workspace-checkout.ts";
 
-const context = {
+const workspace = {
   branch: "main",
-  checkoutDirectory: "$HOME/.gtm/gtm-context",
+  checkoutDirectory: "$HOME/.gtm/gtm-workspace",
   connector: "github/gtm-agent",
   owner: "acme-inc",
-  repo: "gtm-context",
-  repository: "acme-inc/gtm-context",
-  staleMarker: "$HOME/.gtm/.gtm-context.stale",
+  repo: "gtm-workspace",
+  repository: "acme-inc/gtm-workspace",
+  staleMarker: "$HOME/.gtm/.gtm-workspace.stale",
 };
 
 test("Git policy injects auth only for the exact repository smart-HTTP path", () => {
@@ -30,13 +30,13 @@ test("Git policy injects auth only for the exact repository smart-HTTP path", ()
     createGitBasicAuthorization("secret"),
     `Basic ${Buffer.from("x-access-token:secret").toString("base64")}`,
   );
-  assert.deepEqual(createGitNetworkPolicy(context, "Basic secret"), {
+  assert.deepEqual(createGitNetworkPolicy(workspace, "Basic secret"), {
     allow: {
       "github.com": [
         {
           match: {
             method: ["GET"],
-            path: { exact: "/acme-inc/gtm-context.git/info/refs" },
+            path: { exact: "/acme-inc/gtm-workspace.git/info/refs" },
             queryString: [
               {
                 key: { exact: "service" },
@@ -49,7 +49,7 @@ test("Git policy injects auth only for the exact repository smart-HTTP path", ()
         {
           match: {
             method: ["POST"],
-            path: { exact: "/acme-inc/gtm-context.git/git-upload-pack" },
+            path: { exact: "/acme-inc/gtm-workspace.git/git-upload-pack" },
           },
           transform: [{ headers: { authorization: "Basic secret" } }],
         },
@@ -76,12 +76,12 @@ test("hydration clones main without credentials and restores deny-all", async ()
     },
   };
 
-  const result = await hydrateContextWorkspace({
+  const result = await hydrateWorkspaceCheckout({
     authorization: "Basic secret",
-    context,
+    workspace,
     async use(options) {
       events.push("use");
-      assert.deepEqual(options.networkPolicy, createGitNetworkPolicy(context, "Basic secret"));
+      assert.deepEqual(options.networkPolicy, createGitNetworkPolicy(workspace, "Basic secret"));
       return sandbox;
     },
   });
@@ -89,9 +89,9 @@ test("hydration clones main without credentials and restores deny-all", async ()
   assert.deepEqual(events, ["use", "run", "policy:deny-all", "run"]);
   assert.deepEqual(result, {
     branch: "main",
-    checkoutDirectory: "$HOME/.gtm/gtm-context",
+    checkoutDirectory: "$HOME/.gtm/gtm-workspace",
     head: "b".repeat(40),
-    repository: "acme-inc/gtm-context",
+    repository: "acme-inc/gtm-workspace",
   });
   assert.match(commands[0], /--depth=1/);
   assert.match(commands[0], /--single-branch/);
@@ -99,7 +99,8 @@ test("hydration clones main without credentials and restores deny-all", async ()
   assert.match(commands[0], /mkdir "\$repo_dir"/);
   assert.match(commands[0], /remote remove origin/);
   assert.equal(commands.some((command) => command.includes("Basic secret")), false);
-  assert.match(commands[1], /org\.md/);
+  assert.match(commands[1], /ORG\.md/);
+  assert.match(commands[1], /else[\s\S]+org\.md/);
   assert.match(commands[1], /Unexpected credential variable/);
   assert.match(commands[1], /Unexpected Git credential configuration/);
   assert.match(commands[1], /120000/);
@@ -123,9 +124,9 @@ test("hydration fails closed and never includes authorization in errors", async 
   };
 
   await assert.rejects(
-    hydrateContextWorkspace({
+    hydrateWorkspaceCheckout({
       authorization: "Basic secret",
-      context,
+      workspace,
       async use() {
         return sandbox;
       },
@@ -154,14 +155,14 @@ test("refresh fetches and resets to the exact durable commit", async () => {
     },
   };
 
-  await refreshContextWorkspace({
+  await refreshWorkspaceCheckout({
     authorization: "Basic secret",
     commitSha: "c".repeat(40),
-    context,
+    workspace,
     sandbox,
   });
 
-  assert.deepEqual(policies, [createGitNetworkPolicy(context, "Basic secret"), "deny-all"]);
+  assert.deepEqual(policies, [createGitNetworkPolicy(workspace, "Basic secret"), "deny-all"]);
   assert.match(commands[0], new RegExp(`fetch[\\s\\S]+${"c".repeat(40)}`));
   assert.match(commands[0], new RegExp(`reset --hard "${"c".repeat(40)}"`));
   assert.equal(commands.some((command) => command.includes("Basic secret")), false);
@@ -170,10 +171,10 @@ test("refresh fetches and resets to the exact durable commit", async () => {
 test("refresh rejects an untrusted commit value before opening egress", async () => {
   const policies = [];
   await assert.rejects(
-    refreshContextWorkspace({
+    refreshWorkspaceCheckout({
       authorization: "Basic secret",
       commitSha: 'main"; printenv',
-      context,
+      workspace,
       sandbox: {
         async run() {
           throw new Error("must not run");
@@ -191,10 +192,10 @@ test("refresh rejects an untrusted commit value before opening egress", async ()
 test("refresh failure still restores deny-all egress", async () => {
   const policies = [];
   await assert.rejects(
-    refreshContextWorkspace({
+    refreshWorkspaceCheckout({
       authorization: "Basic secret",
       commitSha: "e".repeat(40),
-      context,
+      workspace,
       sandbox: {
         async run() {
           return { exitCode: 1, stderr: "Basic secret", stdout: "" };
@@ -209,16 +210,16 @@ test("refresh failure still restores deny-all egress", async () => {
       return true;
     },
   );
-  assert.deepEqual(policies, [createGitNetworkPolicy(context, "Basic secret"), "deny-all"]);
+  assert.deepEqual(policies, [createGitNetworkPolicy(workspace, "Basic secret"), "deny-all"]);
 });
 
 test("a repeated deny-all failure is surfaced as a terminal egress error", async () => {
   let attempts = 0;
   await assert.rejects(
-    refreshContextWorkspace({
+    refreshWorkspaceCheckout({
       authorization: "Basic secret",
       commitSha: "e".repeat(40),
-      context,
+      workspace,
       sandbox: {
         async run() {
           return { exitCode: 0, stderr: "", stdout: "" };
@@ -238,10 +239,10 @@ test("a repeated deny-all failure is surfaced as a terminal egress error", async
 
 test("mutation preflight rejects dirty, stale, wrong-head, and symlinked paths in one fail-closed check", async () => {
   let command = "";
-  await assertContextWorkspaceReady({
-    context,
+  await assertWorkspaceCheckoutReady({
+    workspace,
     expectedHead: "d".repeat(40),
-    paths: ["suborgs/europe/personas/revenue-leader.md"],
+    paths: ["suborgs/europe/personas/revenue-leader/PERSONA.md"],
     sandbox: {
       async run(input) {
         command = input.command;
@@ -261,7 +262,8 @@ test("mutation preflight rejects dirty, stale, wrong-head, and symlinked paths i
     "suborgs",
     "suborgs/europe",
     "suborgs/europe/personas",
-    "suborgs/europe/personas/revenue-leader.md",
+    "suborgs/europe/personas/revenue-leader",
+    "suborgs/europe/personas/revenue-leader/PERSONA.md",
   ]) {
     assert.match(command, new RegExp(`test ! -L "\\$repo_dir/${path}"`));
   }
@@ -269,11 +271,11 @@ test("mutation preflight rejects dirty, stale, wrong-head, and symlinked paths i
 
 test("real Git preflight and verification reject dirty, stale, wrong branch, wrong head, and tracked symlinks", async () => {
   const temporaryRoot = await mkdtemp(
-    join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "gtm-context-workspace-"),
+    join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "gtm-workspace-checkout-"),
   );
   const repository = join(temporaryRoot, "repository");
-  const fixtureContext = {
-    ...context,
+  const fixtureWorkspace = {
+    ...workspace,
     checkoutDirectory: repository,
     staleMarker: join(temporaryRoot, ".stale"),
   };
@@ -305,46 +307,46 @@ test("real Git preflight and verification reject dirty, stale, wrong branch, wro
     git(repository, ["init", "--initial-branch=main"]);
     git(repository, ["config", "user.email", "fixture@example.test"]);
     git(repository, ["config", "user.name", "Fixture"]);
-    await writeFile(join(repository, "org.md"), "# Organization\n", "utf8");
-    git(repository, ["add", "org.md"]);
+    await writeFile(join(repository, "ORG.md"), "# Organization\n", "utf8");
+    git(repository, ["add", "ORG.md"]);
     git(repository, ["commit", "-m", "fixture"]);
     const originalHead = git(repository, ["rev-parse", "HEAD"]);
 
     assert.equal(
-      await verifyContextWorkspace(sandbox, fixtureContext, originalHead),
+      await verifyWorkspaceCheckout(sandbox, fixtureWorkspace, originalHead),
       originalHead,
     );
 
     await writeFile(join(repository, "draft.md"), "scratch\n", "utf8");
     await assert.rejects(
-      assertContextWorkspaceReady({
-        context: fixtureContext,
+      assertWorkspaceCheckoutReady({
+        workspace: fixtureWorkspace,
         expectedHead: originalHead,
-        paths: ["org.md"],
+        paths: ["ORG.md"],
         sandbox,
       }),
       /uncommitted or untracked/i,
     );
     await rm(join(repository, "draft.md"));
 
-    await writeFile(fixtureContext.staleMarker, "", "utf8");
+    await writeFile(fixtureWorkspace.staleMarker, "", "utf8");
     await assert.rejects(
-      assertContextWorkspaceReady({
-        context: fixtureContext,
+      assertWorkspaceCheckoutReady({
+        workspace: fixtureWorkspace,
         expectedHead: originalHead,
-        paths: ["org.md"],
+        paths: ["ORG.md"],
         sandbox,
       }),
       /stale/i,
     );
-    await rm(fixtureContext.staleMarker);
+    await rm(fixtureWorkspace.staleMarker);
 
     git(repository, ["checkout", "-b", "other"]);
     await assert.rejects(
-      assertContextWorkspaceReady({
-        context: fixtureContext,
+      assertWorkspaceCheckoutReady({
+        workspace: fixtureWorkspace,
         expectedHead: originalHead,
-        paths: ["org.md"],
+        paths: ["ORG.md"],
         sandbox,
       }),
       /configured main branch/i,
@@ -355,22 +357,76 @@ test("real Git preflight and verification reject dirty, stale, wrong branch, wro
     git(repository, ["add", "icps.md"]);
     git(repository, ["commit", "-m", "advance"]);
     await assert.rejects(
-      assertContextWorkspaceReady({
-        context: fixtureContext,
+      assertWorkspaceCheckoutReady({
+        workspace: fixtureWorkspace,
         expectedHead: originalHead,
-        paths: ["org.md"],
+        paths: ["ORG.md"],
         sandbox,
       }),
       /approved base commit/i,
+    );
+
+    git(repository, ["mv", "ORG.md", "org.md"]);
+    git(repository, ["commit", "-m", "legacy root fixture"]);
+    const legacyHead = git(repository, ["rev-parse", "HEAD"]);
+    assert.equal(
+      await verifyWorkspaceCheckout(sandbox, fixtureWorkspace, legacyHead),
+      legacyHead,
     );
 
     await symlink("org.md", join(repository, "org-link.md"));
     git(repository, ["add", "org-link.md"]);
     git(repository, ["commit", "-m", "tracked symlink"]);
     await assert.rejects(
-      verifyContextWorkspace(
+      verifyWorkspaceCheckout(
         sandbox,
-        fixtureContext,
+        fixtureWorkspace,
+        git(repository, ["rev-parse", "HEAD"]),
+      ),
+      /verification failed/i,
+    );
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("real Git verification rejects a checkout without a root organization file", async () => {
+  const temporaryRoot = await mkdtemp(
+    join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "gtm-workspace-no-org-"),
+  );
+  const repository = join(temporaryRoot, "repository");
+  const fixtureWorkspace = {
+    ...workspace,
+    checkoutDirectory: repository,
+    staleMarker: join(temporaryRoot, ".stale"),
+  };
+  const sandbox = {
+    async run({ command }) {
+      const result = spawnSync("bash", ["-c", command], {
+        encoding: "utf8",
+        env: { HOME: temporaryRoot, PATH: process.env.PATH },
+      });
+      return {
+        exitCode: result.status ?? 1,
+        stderr: result.stderr,
+        stdout: result.stdout,
+      };
+    },
+  };
+
+  try {
+    await mkdir(repository, { recursive: true });
+    git(repository, ["init", "--initial-branch=main"]);
+    git(repository, ["config", "user.email", "fixture@example.test"]);
+    git(repository, ["config", "user.name", "Fixture"]);
+    await writeFile(join(repository, "README.md"), "# Workspace\n", "utf8");
+    git(repository, ["add", "README.md"]);
+    git(repository, ["commit", "-m", "fixture without organization"]);
+
+    await assert.rejects(
+      verifyWorkspaceCheckout(
+        sandbox,
+        fixtureWorkspace,
         git(repository, ["rev-parse", "HEAD"]),
       ),
       /verification failed/i,

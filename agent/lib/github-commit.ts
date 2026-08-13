@@ -1,7 +1,7 @@
-import type { ContextMutation } from "./context-paths.ts";
-import { validateContextMutation } from "./context-paths.ts";
-import { CONTEXT_BRANCH } from "./config.ts";
-import { EgressNotClosedError } from "./context-workspace.ts";
+import type { WorkspaceMutation } from "./workspace-paths.ts";
+import { validateWorkspaceMutation } from "./workspace-paths.ts";
+import { WORKSPACE_BRANCH } from "./config.ts";
+import { EgressNotClosedError } from "./workspace-checkout.ts";
 
 const CREATE_COMMIT_ON_BRANCH = `
   mutation CreateCommitOnBranch($input: CreateCommitOnBranchInput!) {
@@ -11,10 +11,10 @@ const CREATE_COMMIT_ON_BRANCH = `
   }
 `;
 
-export class ContextConflictError extends Error {
-  constructor(message = "The GTM context changed since this Slack thread started. Start a fresh thread and try again.") {
+export class WorkspaceConflictError extends Error {
+  constructor(message = "The GTM workspace changed since this Slack thread started. Start a fresh thread and try again.") {
     super(message);
-    this.name = "ContextConflictError";
+    this.name = "WorkspaceConflictError";
   }
 }
 
@@ -29,35 +29,35 @@ export type MutationResult = CommitResult & {
   readonly paths: readonly string[];
 };
 
-export type ContextMutationDependencies = {
+export type WorkspaceMutationDependencies = {
   readonly assertWorkspaceReady: (
     expectedHead: string,
     paths: readonly string[],
   ) => Promise<void>;
   readonly getRemoteHead: () => Promise<string>;
-  readonly createCommit: (input: ContextMutation) => Promise<CommitResult>;
+  readonly createCommit: (input: WorkspaceMutation) => Promise<CommitResult>;
   readonly refresh: (commitSha: string) => Promise<void>;
   readonly markStale: () => Promise<void>;
 };
 
-export async function runApprovedContextMutation(
-  rawInput: ContextMutation,
-  dependencies: ContextMutationDependencies,
+export async function runApprovedWorkspaceMutation(
+  rawInput: WorkspaceMutation,
+  dependencies: WorkspaceMutationDependencies,
 ): Promise<MutationResult> {
-  const input = validateContextMutation(rawInput);
+  const input = validateWorkspaceMutation(rawInput);
   const paths = input.manifest.map((entry) => entry.path);
 
   await dependencies.assertWorkspaceReady(input.expectedHead, paths);
   const remoteHead = await dependencies.getRemoteHead();
   if (remoteHead !== input.expectedHead) {
-    throw new ContextConflictError();
+    throw new WorkspaceConflictError();
   }
 
   let commit: CommitResult;
   try {
     commit = await dependencies.createCommit(input);
   } catch (error) {
-    if (isStaleGitHubError(error)) throw new ContextConflictError();
+    if (isStaleGitHubError(error)) throw new WorkspaceConflictError();
     throw error;
   }
 
@@ -108,7 +108,7 @@ export async function createCommitOnMain(
       input: {
         branch: {
           repositoryNameWithOwner: `${input.owner}/${input.repo}`,
-          branchName: CONTEXT_BRANCH,
+          branchName: WORKSPACE_BRANCH,
         },
         expectedHeadOid: input.expectedHead,
         message: { headline: input.message },
@@ -127,13 +127,13 @@ export async function createCommitOnMain(
       commitUrl: result.createCommitOnBranch.commit.url,
     };
   } catch (error) {
-    if (isStaleGitHubError(error)) throw new ContextConflictError();
+    if (isStaleGitHubError(error)) throw new WorkspaceConflictError();
     throw error;
   }
 }
 
 function isStaleGitHubError(error: unknown): boolean {
-  if (error instanceof ContextConflictError) return true;
+  if (error instanceof WorkspaceConflictError) return true;
   if (typeof error !== "object" || error === null) return false;
   const errors = "errors" in error ? error.errors : undefined;
   if (!Array.isArray(errors)) return false;
