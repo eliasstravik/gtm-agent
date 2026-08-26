@@ -46,6 +46,7 @@ export default defineSandbox({
     await hydrateWorkspaceCheckout({
       authorization,
       baselinePolicy,
+      prepareWorkflowRuntime: configuration.workflow !== null,
       workspace: configuration.workspace,
       use,
     });

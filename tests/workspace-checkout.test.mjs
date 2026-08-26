@@ -108,6 +108,37 @@ test("hydration clones main without credentials and restores deny-all", async ()
   assert.equal(abortSignals.every((signal) => signal instanceof AbortSignal), true);
 });
 
+test("workflow-hosted hydration installs locked runtime dependencies before returning", async () => {
+  const commands = [];
+  const sandbox = {
+    async run({ command }) {
+      commands.push(command);
+      return commands.length === 2
+        ? { exitCode: 0, stderr: "", stdout: `${"b".repeat(40)}\n` }
+        : { exitCode: 0, stderr: "", stdout: "" };
+    },
+    async setNetworkPolicy() {},
+  };
+
+  await hydrateWorkspaceCheckout({
+    authorization: "Basic secret",
+    baselinePolicy: workflowBaseline,
+    prepareWorkflowRuntime: true,
+    workspace,
+    async use() {
+      return sandbox;
+    },
+  });
+
+  assert.equal(commands.length, 3);
+  assert.match(commands[2], /package-lock\.json/);
+  assert.match(commands[2], /npm ci/);
+  assert.match(commands[2], /--include=dev/);
+  assert.match(commands[2], /--ignore-scripts/);
+  assert.match(commands[2], /--no-audit/);
+  assert.match(commands[2], /--no-fund/);
+});
+
 test("hydration fails closed and never includes authorization in errors", async () => {
   const policies = [];
   const sandbox = {

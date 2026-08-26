@@ -15,6 +15,7 @@ type VercelSessionUse = SandboxSessionUseFn<{
 }>;
 
 const SANDBOX_COMMAND_TIMEOUT_MS = 30_000;
+const WORKFLOW_PREPARATION_TIMEOUT_MS = 2 * 60 * 1000;
 
 type CustomNetworkPolicy = Exclude<SandboxNetworkPolicy, string>;
 type NetworkAllowMap = Extract<CustomNetworkPolicy["allow"], Record<string, unknown>>;
@@ -99,11 +100,13 @@ export function createGitNetworkPolicy(
 export async function hydrateWorkspaceCheckout({
   authorization,
   baselinePolicy = "deny-all",
+  prepareWorkflowRuntime = false,
   workspace,
   use,
 }: {
   readonly authorization: string;
   readonly baselinePolicy?: SandboxNetworkPolicy;
+  readonly prepareWorkflowRuntime?: boolean;
   readonly workspace: ConnectedWorkspaceConfiguration;
   readonly use: VercelSessionUse;
 }): Promise<WorkspaceCheckoutMetadata> {
@@ -122,12 +125,27 @@ export async function hydrateWorkspaceCheckout({
   }
 
   const head = await verifyWorkspaceCheckout(sandbox, workspace);
+  if (prepareWorkflowRuntime) {
+    await prepareWorkspaceWorkflowRuntime(sandbox, workspace);
+  }
   return {
     branch: workspace.branch,
     checkoutDirectory: workspace.checkoutDirectory,
     head,
     repository: workspace.repository,
   };
+}
+
+async function prepareWorkspaceWorkflowRuntime(
+  sandbox: Pick<SandboxSession, "run">,
+  workspace: ConnectedWorkspaceConfiguration,
+): Promise<void> {
+  await runCredentialFree(
+    sandbox,
+    createWorkflowRuntimePreparationCommand(workspace),
+    "GTM workflow dependency installation",
+    WORKFLOW_PREPARATION_TIMEOUT_MS,
+  );
 }
 
 export async function verifyWorkspaceCheckout(
@@ -234,6 +252,24 @@ test "$(git -C "$repo_dir" rev-parse FETCH_HEAD)" = "${commitSha}"
 git -C "$repo_dir" reset --hard "${commitSha}"`;
 }
 
+function createWorkflowRuntimePreparationCommand(
+  workspace: ConnectedWorkspaceConfiguration,
+): string {
+  return `set -euo pipefail
+repo_dir="${workspace.checkoutDirectory}"
+workflow_dir="$repo_dir/workflows"
+if test ! -f "$workflow_dir/package.json"; then
+  exit 0
+fi
+test -f "$workflow_dir/package-lock.json"
+test ! -L "$workflow_dir"
+test ! -L "$workflow_dir/package.json"
+test ! -L "$workflow_dir/package-lock.json"
+cd "$workflow_dir"
+npm ci --include=dev --ignore-scripts --no-audit --no-fund
+test -x node_modules/.bin/tsx`;
+}
+
 function createVerificationCommand(
   workspace: ConnectedWorkspaceConfiguration,
   expectedHead?: string,
@@ -299,18 +335,20 @@ async function runCredentialFree(
   sandbox: Pick<SandboxSession, "run">,
   command: string,
   label: string,
+  timeoutMs = SANDBOX_COMMAND_TIMEOUT_MS,
 ): Promise<void> {
-  const result = await runSandboxCommand(sandbox, command);
+  const result = await runSandboxCommand(sandbox, command, timeoutMs);
   assertSucceeded(label, result);
 }
 
 function runSandboxCommand(
   sandbox: Pick<SandboxSession, "run">,
   command: string,
+  timeoutMs = SANDBOX_COMMAND_TIMEOUT_MS,
 ): ReturnType<SandboxSession["run"]> {
   return sandbox.run({
     command,
-    abortSignal: AbortSignal.timeout(SANDBOX_COMMAND_TIMEOUT_MS),
+    abortSignal: AbortSignal.timeout(timeoutMs),
   });
 }
 
