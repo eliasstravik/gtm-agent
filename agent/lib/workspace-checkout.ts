@@ -16,6 +16,24 @@ type VercelSessionUse = SandboxSessionUseFn<{
 
 const SANDBOX_COMMAND_TIMEOUT_MS = 30_000;
 
+type CustomNetworkPolicy = Exclude<SandboxNetworkPolicy, string>;
+type NetworkAllowMap = Extract<CustomNetworkPolicy["allow"], Record<string, unknown>>;
+
+/**
+ * Variables that must never reach the session environment. Connector tokens
+ * are brokered into Git upload-pack only; the Turso token and workflow
+ * Gateway key are brokered at the firewall for their exact hosts.
+ */
+const FORBIDDEN_SESSION_VARIABLES = [
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+  "VERCEL_OIDC_TOKEN",
+  "VERCEL_AUTH_TOKEN",
+  "CONNECT_TOKEN",
+  "TURSO_AUTH_TOKEN",
+  "GTM_WORKFLOW_GATEWAY_API_KEY",
+] as const;
+
 export type WorkspaceCheckoutMetadata = {
   readonly branch: typeof WORKSPACE_BRANCH;
   readonly checkoutDirectory: string;
@@ -26,7 +44,7 @@ export type WorkspaceCheckoutMetadata = {
 export class EgressNotClosedError extends Error {
   constructor() {
     super(
-      "Sandbox egress could not be restored to deny-all. End this session immediately.",
+      "Sandbox egress could not be restored to its session baseline. End this session immediately.",
     );
     this.name = "EgressNotClosedError";
   }
@@ -36,12 +54,20 @@ export function createGitBasicAuthorization(token: string): string {
   return `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
 }
 
+/**
+ * Egress for a clone or refresh: the session baseline (deny-all, or the
+ * workflow allowlist) plus credentialed access to this repository's
+ * upload-pack endpoints only. Keeping the baseline means a workflow run in
+ * progress does not lose its database or provider egress mid-refresh.
+ */
 export function createGitNetworkPolicy(
   workspace: ConnectedWorkspaceConfiguration,
   authorization: string,
-): SandboxNetworkPolicy {
+  baseline: SandboxNetworkPolicy = "deny-all",
+): CustomNetworkPolicy {
   return {
     allow: {
+      ...baselineAllowMap(baseline),
       "github.com": [
         {
           match: {
@@ -72,15 +98,17 @@ export function createGitNetworkPolicy(
 
 export async function hydrateWorkspaceCheckout({
   authorization,
+  baselinePolicy = "deny-all",
   workspace,
   use,
 }: {
   readonly authorization: string;
+  readonly baselinePolicy?: SandboxNetworkPolicy;
   readonly workspace: ConnectedWorkspaceConfiguration;
   readonly use: VercelSessionUse;
 }): Promise<WorkspaceCheckoutMetadata> {
   const sandbox = await use({
-    networkPolicy: createGitNetworkPolicy(workspace, authorization),
+    networkPolicy: createGitNetworkPolicy(workspace, authorization, baselinePolicy),
   });
 
   try {
@@ -90,7 +118,7 @@ export async function hydrateWorkspaceCheckout({
       "GTM workspace checkout",
     );
   } finally {
-    await closeSandboxEgress(sandbox);
+    await closeSandboxEgress(sandbox, baselinePolicy);
   }
 
   const head = await verifyWorkspaceCheckout(sandbox, workspace);
@@ -140,11 +168,13 @@ export async function assertWorkspaceCheckoutReady({
 
 export async function refreshWorkspaceCheckout({
   authorization,
+  baselinePolicy = "deny-all",
   commitSha,
   workspace,
   sandbox,
 }: {
   readonly authorization: string;
+  readonly baselinePolicy?: SandboxNetworkPolicy;
   readonly commitSha: string;
   readonly workspace: ConnectedWorkspaceConfiguration;
   readonly sandbox: Pick<SandboxSession, "run" | "setNetworkPolicy">;
@@ -152,7 +182,9 @@ export async function refreshWorkspaceCheckout({
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(commitSha)) {
     throw new Error("Refusing to refresh to an invalid Git object ID.");
   }
-  await sandbox.setNetworkPolicy(createGitNetworkPolicy(workspace, authorization));
+  await sandbox.setNetworkPolicy(
+    createGitNetworkPolicy(workspace, authorization, baselinePolicy),
+  );
   try {
     await runCredentialFree(
       sandbox,
@@ -160,7 +192,7 @@ export async function refreshWorkspaceCheckout({
       "GTM workspace refresh",
     );
   } finally {
-    await closeSandboxEgress(sandbox);
+    await closeSandboxEgress(sandbox, baselinePolicy);
   }
 
   const head = await verifyWorkspaceCheckout(sandbox, workspace, commitSha);
@@ -222,7 +254,7 @@ if git -C "$repo_dir" ls-files --stage | awk '$1 == "120000" || $1 == "160000" {
   echo "Unsupported symlink or gitlink in GTM workspace checkout" >&2
   exit 1
 fi
-for variable in GITHUB_TOKEN GH_TOKEN VERCEL_OIDC_TOKEN VERCEL_AUTH_TOKEN CONNECT_TOKEN; do
+for variable in ${FORBIDDEN_SESSION_VARIABLES.join(" ")}; do
   if printenv "$variable" >/dev/null 2>&1; then
     echo "Unexpected credential variable: $variable" >&2
     exit 1
@@ -282,15 +314,24 @@ function runSandboxCommand(
   });
 }
 
+function baselineAllowMap(policy: SandboxNetworkPolicy): NetworkAllowMap {
+  if (typeof policy === "string") return {};
+  if (Array.isArray(policy.allow)) {
+    return Object.fromEntries(policy.allow.map((host) => [host, []]));
+  }
+  return policy.allow ?? {};
+}
+
 async function closeSandboxEgress(
   sandbox: Pick<SandboxSession, "setNetworkPolicy">,
+  baseline: SandboxNetworkPolicy,
 ): Promise<void> {
   try {
-    await sandbox.setNetworkPolicy("deny-all");
+    await sandbox.setNetworkPolicy(baseline);
     return;
   } catch {
     try {
-      await sandbox.setNetworkPolicy("deny-all");
+      await sandbox.setNetworkPolicy(baseline);
       return;
     } catch {
       throw new EgressNotClosedError();

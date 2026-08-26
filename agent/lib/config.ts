@@ -1,12 +1,30 @@
+import { AI_GATEWAY_HOST, NPM_REGISTRY_HOST } from "./workflow-session.ts";
+
 export const WORKSPACE_BRANCH = "main" as const;
 
 export const CONFIGURATION_ERROR =
   "GitHub workspace configuration is incomplete: set both GITHUB_CONNECTOR and GTM_WORKSPACE_REPOSITORY, or unset both for Slack-only mode.";
 export const SLACK_CONFIGURATION_ERROR =
   "SLACK_CONNECTOR must be set to the deployment's Vercel Connect Slack connector.";
+export const WORKFLOW_CONFIGURATION_ERROR =
+  "GTM workflow configuration is incomplete: set both TURSO_DATABASE_URL and TURSO_AUTH_TOKEN, or unset both to run without workflow hosting.";
+export const WORKFLOW_WORKSPACE_ERROR =
+  "GTM workflow hosting requires the connected workspace: configure GITHUB_CONNECTOR and GTM_WORKSPACE_REPOSITORY before TURSO_DATABASE_URL.";
 
 const REPOSITORY_PATTERN =
   /^(?<owner>[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?)\/(?<repo>[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?)$/;
+const HOSTNAME_PATTERN =
+  /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+const DATABASE_URL_PATTERN = /^(?:libsql|https):\/\/(?<host>[^/?#:@]+)$/;
+/** Hosts a provider allowlist can never open: they carry other trust decisions. */
+const RESERVED_PROVIDER_HOSTS: ReadonlySet<string> = new Set([
+  "github.com",
+  "api.github.com",
+  "vercel.com",
+  "api.vercel.com",
+  NPM_REGISTRY_HOST,
+  AI_GATEWAY_HOST,
+]);
 
 export type WorkspaceRepository = {
   readonly owner: string;
@@ -21,8 +39,24 @@ export type ConnectedWorkspaceConfiguration = WorkspaceRepository & {
   readonly staleMarker: string;
 };
 
+/**
+ * Host-side settings for running the vendored `gtm-workflow` runtime inside
+ * the sandbox. The database URL is delivered to the session as
+ * `TURSO_DATABASE_URL` (it is not a credential). The Turso token and the
+ * workflow Gateway key are brokered at the sandbox firewall and never enter
+ * the session environment.
+ */
+export type WorkflowHostConfiguration = {
+  readonly databaseHost: string;
+  readonly databaseUrl: string;
+  readonly databaseAuthToken: string;
+  readonly gatewayApiKey: string | null;
+  readonly providerHosts: readonly string[];
+};
+
 export type GtmAgentConfiguration = {
   readonly slackConnector: string;
+  readonly workflow: WorkflowHostConfiguration | null;
   readonly workspace: ConnectedWorkspaceConfiguration | null;
 };
 
@@ -56,12 +90,17 @@ export function parseConfiguration(
   }
 
   if (connector === undefined || repositoryValue === undefined) {
-    return { slackConnector, workspace: null };
+    return {
+      slackConnector,
+      workflow: parseWorkflowConfiguration(environment, false),
+      workspace: null,
+    };
   }
 
   const repository = parseWorkspaceRepository(repositoryValue);
   return {
     slackConnector,
+    workflow: parseWorkflowConfiguration(environment, true),
     workspace: {
       ...repository,
       branch: WORKSPACE_BRANCH,
@@ -70,6 +109,68 @@ export function parseConfiguration(
       staleMarker: `$HOME/.gtm/.${repository.repo}.stale`,
     },
   };
+}
+
+function parseWorkflowConfiguration(
+  environment: Readonly<Record<string, string | undefined>>,
+  hasWorkspace: boolean,
+): WorkflowHostConfiguration | null {
+  const databaseValue = present(environment.TURSO_DATABASE_URL);
+  const databaseAuthToken = present(environment.TURSO_AUTH_TOKEN);
+
+  if ((databaseValue === undefined) !== (databaseAuthToken === undefined)) {
+    throw new Error(WORKFLOW_CONFIGURATION_ERROR);
+  }
+  if (databaseValue === undefined || databaseAuthToken === undefined) {
+    return null;
+  }
+  if (!hasWorkspace) {
+    throw new Error(WORKFLOW_WORKSPACE_ERROR);
+  }
+
+  const databaseHost = parseDatabaseHost(databaseValue);
+  return {
+    databaseHost,
+    databaseUrl: `https://${databaseHost}`,
+    databaseAuthToken,
+    gatewayApiKey: present(environment.GTM_WORKFLOW_GATEWAY_API_KEY) ?? null,
+    providerHosts: parseProviderHosts(
+      environment.GTM_WORKFLOW_PROVIDER_HOSTS,
+      databaseHost,
+    ),
+  };
+}
+
+function parseDatabaseHost(value: string): string {
+  const host = DATABASE_URL_PATTERN.exec(value)?.groups?.host;
+  if (host === undefined || !HOSTNAME_PATTERN.test(host)) {
+    throw new Error(
+      "TURSO_DATABASE_URL must be exactly one libsql:// or https:// Turso host with no path, port, query, or credentials.",
+    );
+  }
+  return host;
+}
+
+function parseProviderHosts(
+  value: string | undefined,
+  databaseHost: string,
+): readonly string[] {
+  const trimmed = value?.trim();
+  if (trimmed === undefined || trimmed.length === 0) return [];
+
+  const hosts = trimmed.split(",").map((entry) => entry.trim());
+  for (const host of hosts) {
+    if (
+      !HOSTNAME_PATTERN.test(host) ||
+      RESERVED_PROVIDER_HOSTS.has(host) ||
+      host === databaseHost
+    ) {
+      throw new Error(
+        `GTM_WORKFLOW_PROVIDER_HOSTS must list exact lowercase provider hostnames outside the trusted host set; rejected ${JSON.stringify(host)}.`,
+      );
+    }
+  }
+  return [...new Set(hosts)];
 }
 
 export function getConfiguration(): GtmAgentConfiguration {

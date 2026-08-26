@@ -4,21 +4,30 @@ import { vercel } from "eve/sandbox/vercel";
 
 import { getConfiguration } from "./lib/config.ts";
 import {
+  createSessionNetworkPolicy,
+  createWorkflowSessionEnvironment,
+} from "./lib/workflow-session.ts";
+import {
   createGitBasicAuthorization,
   hydrateWorkspaceCheckout,
 } from "./lib/workspace-checkout.ts";
 
 export default defineSandbox({
-  backend: vercel({
-    networkPolicy: "deny-all",
-    resources: { vcpus: 1 },
-  }),
+  // Lazy factory: the session environment is derived from the deployment
+  // configuration when the runtime first resolves the backend, not at load.
+  backend: () =>
+    vercel({
+      networkPolicy: "deny-all",
+      resources: { vcpus: 1 },
+      env: createWorkflowSessionEnvironment(getConfiguration().workflow),
+    }),
   description:
-    "A credential-free GTM workspace with deny-all sandbox network access.",
+    "A credential-free GTM workspace sandbox: deny-all egress, or an exact workflow allowlist whose tokens are brokered at the firewall.",
   async onSession({ use }) {
     const configuration = getConfiguration();
+    const baselinePolicy = createSessionNetworkPolicy(configuration.workflow);
     if (configuration.workspace === null) {
-      await use({ networkPolicy: "deny-all" });
+      await use({ networkPolicy: baselinePolicy });
       return;
     }
 
@@ -36,6 +45,7 @@ export default defineSandbox({
 
     await hydrateWorkspaceCheckout({
       authorization,
+      baselinePolicy,
       workspace: configuration.workspace,
       use,
     });

@@ -442,3 +442,96 @@ function git(cwd, args) {
     stdio: "pipe",
   }).trim();
 }
+
+const workflowBaseline = {
+  allow: {
+    "registry.npmjs.org": [],
+    "acme.turso.io": [
+      { transform: [{ headers: { authorization: "Bearer turso-secret" } }] },
+    ],
+  },
+};
+
+test("Git policy merges the session baseline so workflow egress survives clone and refresh", () => {
+  const gitOnly = createGitNetworkPolicy(workspace, "Basic secret");
+  assert.deepEqual(
+    createGitNetworkPolicy(workspace, "Basic secret", workflowBaseline),
+    { allow: { ...workflowBaseline.allow, "github.com": gitOnly.allow["github.com"] } },
+  );
+  assert.deepEqual(createGitNetworkPolicy(workspace, "Basic secret", "deny-all"), gitOnly);
+});
+
+test("hydration restores the session baseline instead of deny-all when workflows are hosted", async () => {
+  const policies = [];
+  let runs = 0;
+  const sandbox = {
+    async run() {
+      runs += 1;
+      return runs === 1
+        ? { exitCode: 0, stderr: "", stdout: "" }
+        : { exitCode: 0, stderr: "", stdout: `${"b".repeat(40)}\n` };
+    },
+    async setNetworkPolicy(policy) {
+      policies.push(policy);
+    },
+  };
+  let opened;
+  await hydrateWorkspaceCheckout({
+    authorization: "Basic secret",
+    baselinePolicy: workflowBaseline,
+    workspace,
+    async use(options) {
+      opened = options.networkPolicy;
+      return sandbox;
+    },
+  });
+  assert.deepEqual(opened, createGitNetworkPolicy(workspace, "Basic secret", workflowBaseline));
+  assert.deepEqual(policies, [workflowBaseline]);
+});
+
+test("refresh restores the session baseline instead of deny-all when workflows are hosted", async () => {
+  const policies = [];
+  let runs = 0;
+  await refreshWorkspaceCheckout({
+    authorization: "Basic secret",
+    baselinePolicy: workflowBaseline,
+    commitSha: "c".repeat(40),
+    workspace,
+    sandbox: {
+      async run() {
+        runs += 1;
+        return runs === 1
+          ? { exitCode: 0, stderr: "", stdout: "" }
+          : { exitCode: 0, stderr: "", stdout: `${"c".repeat(40)}\n` };
+      },
+      async setNetworkPolicy(policy) {
+        policies.push(policy);
+      },
+    },
+  });
+  assert.deepEqual(policies, [
+    createGitNetworkPolicy(workspace, "Basic secret", workflowBaseline),
+    workflowBaseline,
+  ]);
+});
+
+test("verification refuses brokered workflow secrets in the session environment", async () => {
+  let command = "";
+  await verifyWorkspaceCheckout(
+    {
+      async run(input) {
+        command = input.command;
+        return { exitCode: 0, stderr: "", stdout: `${"f".repeat(40)}\n` };
+      },
+    },
+    workspace,
+  );
+  const loop = /for variable in ([^;]+); do/.exec(command);
+  assert.ok(loop, "verification lists forbidden credential variables");
+  const variables = loop[1].trim().split(/\s+/);
+  for (const variable of ["TURSO_AUTH_TOKEN", "GTM_WORKFLOW_GATEWAY_API_KEY", "GITHUB_TOKEN"]) {
+    assert.ok(variables.includes(variable), variable);
+  }
+  assert.equal(variables.includes("TURSO_DATABASE_URL"), false);
+  assert.equal(variables.includes("AI_GATEWAY_API_KEY"), false);
+});

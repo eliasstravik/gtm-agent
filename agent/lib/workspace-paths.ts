@@ -1,8 +1,9 @@
 import { posix } from "node:path";
 
 export const MAX_PATHS = 50;
-export const MAX_FILE_BYTES = 256 * 1024;
-export const MAX_TOTAL_BYTES = 1024 * 1024;
+/** A workflow scaffold ships a lockfile above 300 KiB; keep headroom for it. */
+export const MAX_FILE_BYTES = 1024 * 1024;
+export const MAX_TOTAL_BYTES = 4 * 1024 * 1024;
 
 const SLUG = "[a-z0-9]+(?:-[a-z0-9]+)*";
 const NODE_PREFIX = `(?:suborgs/${SLUG}/)*`;
@@ -12,6 +13,20 @@ const WRITABLE_NODE_FILE_PATTERN = new RegExp(
 const LEGACY_DELETE_PATTERN = new RegExp(
   `^${NODE_PREFIX}(?:org\\.md|people/${SLUG}/(?:person|PERSON)\\.md)$`,
 );
+const WORKFLOW_SEGMENT = "[A-Za-z0-9_.\\[\\]-]+";
+const WORKFLOW_PROJECT_FILE_PATTERN = new RegExp(
+  `^workflows/(?:${WORKFLOW_SEGMENT}/)*${WORKFLOW_SEGMENT}$`,
+);
+/** Ignored working state the runtime writes without approval; never tracked. */
+const WORKFLOW_IGNORED_ROOT_ENTRIES = new Set([
+  ".nitro",
+  ".output",
+  ".swc",
+  ".vercel",
+  ".well-known",
+  ".workflow-data",
+  "data",
+]);
 const ROOT_ONLY_CONTRACT_FILES = new Set([
   ".gitignore",
   "AGENTS.md",
@@ -64,6 +79,7 @@ export function validateWorkspacePath(
   if (
     !ROOT_ONLY_CONTRACT_FILES.has(path) &&
     !WRITABLE_NODE_FILE_PATTERN.test(path) &&
+    !isWorkflowProjectPath(path) &&
     !(operation === "delete" && LEGACY_DELETE_PATTERN.test(path))
   ) {
     throw new Error(`Path is outside the GTM workspace contract: ${path}.`);
@@ -164,6 +180,23 @@ export function validateWorkspaceMutation<T extends WorkspaceMutation>(input: T)
   }
 
   return input;
+}
+
+/**
+ * Tracked files of the root `workflows/` project owned by `gtm-workflow`.
+ * Secrets (`.env*` except `.env.example`), dependencies, and ignored runtime
+ * state are outside the contract even though the sandbox may write them.
+ */
+function isWorkflowProjectPath(path: string): boolean {
+  if (!WORKFLOW_PROJECT_FILE_PATTERN.test(path)) return false;
+  const segments = path.split("/").slice(1);
+  return (
+    !WORKFLOW_IGNORED_ROOT_ENTRIES.has(segments[0]) &&
+    !segments.includes("node_modules") &&
+    !segments.some(
+      (segment) => segment.startsWith(".env") && segment !== ".env.example",
+    )
+  );
 }
 
 function validateUniquePaths(

@@ -21,7 +21,7 @@ import {
 } from "../scripts/sync-gtm-skills.mjs";
 
 const root = new URL("../", import.meta.url);
-const expected = ["gtm-icp", "gtm-persona", "gtm-workspace"];
+const expected = ["gtm-icp", "gtm-persona", "gtm-workflow", "gtm-workspace"];
 const legacyTransitionSkills = [
   "gtm-account-research",
   "gtm-account-scoring",

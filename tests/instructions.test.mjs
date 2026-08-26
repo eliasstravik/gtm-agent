@@ -32,6 +32,31 @@ test("standing instructions define the fixed Slack and workspace mechanics", () 
   }
 });
 
+test("standing instructions declare the sandbox workflow runtime and its limits", () => {
+  for (const pattern of [
+    /GTM_SANDBOX=1/,
+    /GTM_AGENT_BACKEND=api/,
+    /TURSO_DATABASE_URL/,
+    /\$HOME\/\.gtm-scratch\/<repo>\/workflows\//,
+    /node_modules\/[\s\S]*\.env\b[\s\S]*\.env\.turso[\s\S]*\.workflow-data\/[\s\S]*\.nitro\/[\s\S]*\.output\/[\s\S]*data\//,
+    /without approval/i,
+    /apply_gtm_workspace_changes[\s\S]*workflows\//,
+    /Runs: on this computer/,
+    /Runs: on Vercel/,
+    /no Vercel CLI|Vercel CLI is not/i,
+    /expose no (?:sandbox )?port|no (?:sandbox )?port/i,
+    /npm run gtm -- runs get/,
+    /npm run gtm -- query/,
+    /npx workflow inspect/,
+    /firewall|brokered/i,
+    /never (?:print|paste|echo)[\s\S]*(?:token|secret|key)/i,
+    /same session/i,
+  ]) {
+    assert.match(instructions, pattern);
+  }
+  assert.doesNotMatch(instructions, /db:studio/);
+});
+
 test("instructions leave domain workflows and no-workspace behavior to skills", () => {
   assert.match(instructions, /skills govern/i);
   assert.match(instructions, /do not invent.*alternate/i);

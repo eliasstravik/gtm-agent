@@ -239,3 +239,74 @@ test("combined addition bounds count UTF-8 bytes across files", () => {
     MAX_TOTAL_BYTES + 2,
   );
 });
+
+test("root workflow project files are writable and deletable through the contract", () => {
+  for (const path of [
+    "workflows/package.json",
+    "workflows/package-lock.json",
+    "workflows/.gitignore",
+    "workflows/.vercelignore",
+    "workflows/.nvmrc",
+    "workflows/.env.example",
+    "workflows/nitro.config.ts",
+    "workflows/drizzle.config.ts",
+    "workflows/vercel.json",
+    "workflows/drizzle/0000_even_ronan.sql",
+    "workflows/drizzle/meta/_journal.json",
+    "workflows/lib/db-url.ts",
+    "workflows/server/api/approve/[token].post.ts",
+    "workflows/server/api/run/[...workflow].ts",
+    "workflows/scripts/gtm.ts",
+    "workflows/db/tables/accounts.ts",
+    "workflows/providers/company-data.ts",
+    "workflows/providers/__fixtures__/company-data.json",
+    "workflows/workflows/find-accounts.ts",
+    "workflows/workflows/europe/nordics/find-accounts.ts",
+  ]) {
+    assert.doesNotThrow(() => validateWorkspacePath(path, "write"), path);
+    assert.doesNotThrow(() => validateWorkspacePath(path, "delete"), path);
+  }
+});
+
+test("workflow working state, secrets, and nested projects stay outside the contract", () => {
+  for (const path of [
+    "workflows",
+    "workflows/",
+    "workflows/.env",
+    "workflows/.env.turso",
+    "workflows/.env.local",
+    "workflows/lib/.env",
+    "workflows/node_modules/zod/package.json",
+    "workflows/lib/node_modules/x.js",
+    "workflows/.workflow-data/runs.json",
+    "workflows/.nitro/manifest.json",
+    "workflows/.output/server.mjs",
+    "workflows/.vercel/project.json",
+    "workflows/.well-known/x",
+    "workflows/.swc/x",
+    "workflows/data/gtm.db",
+    "workflows/data/input.json",
+    "workflows/lib/../db.ts",
+    "workflows/lib/a b.ts",
+    "workflows/lib/x.ts~",
+    "workflows/lib/x$.ts",
+    "workflows/lib/.",
+    "suborgs/europe/workflows/workflows/x.ts",
+    "Workflows/package.json",
+  ]) {
+    assert.throws(() => validateWorkspacePath(path, "write"), /path|contract/i, path);
+    assert.throws(() => validateWorkspacePath(path, "delete"), /path|contract/i, path);
+  }
+});
+
+test("a workflow scaffold lockfile fits the per-file bound", () => {
+  const mutation = {
+    summary: "Add the workflow project",
+    expectedHead: "e".repeat(40),
+    message: "Add workflow project",
+    manifest: [{ path: "workflows/package-lock.json", operation: "write" }],
+    additions: [{ path: "workflows/package-lock.json", content: "x".repeat(400 * 1024) }],
+    deletions: [],
+  };
+  assert.deepEqual(validateWorkspaceMutation(mutation), mutation);
+});
