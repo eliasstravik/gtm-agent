@@ -1,0 +1,10 @@
+.env*
+!.env.example
+.vercel/
+.well-known/
+node_modules/
+.workflow-data/
+.nitro/
+.output/
+.swc/
+data/

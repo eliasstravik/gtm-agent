@@ -30,12 +30,17 @@ test("sandbox is Vercel-backed, deny-all by default, and repository-optional", a
   const sandbox = await read("agent/sandbox.ts");
 
   assert.match(sandbox, /defineSandbox/);
-  assert.match(sandbox, /vercel\(/);
+  assert.match(sandbox, /backend:\s*\(\)\s*=>\s*vercel\(/);
   assert.match(sandbox, /networkPolicy:\s*"deny-all"/);
+  assert.match(sandbox, /env:\s*createWorkflowSessionEnvironment\(/);
+  assert.match(sandbox, /createSessionNetworkPolicy\(/);
+  assert.match(sandbox, /baselinePolicy/);
   assert.match(sandbox, /if \(configuration\.workspace === null\)/);
   assert.match(sandbox, /contents:read/);
   assert.match(sandbox, /metadata:read/);
   assert.doesNotMatch(sandbox, /contents:write/);
+  assert.doesNotMatch(sandbox, /ports:/);
+  assert.doesNotMatch(sandbox, /databaseAuthToken|gatewayApiKey/);
   assert.match(sandbox, /authorizationDetails/);
   assert.match(sandbox, /hydrateWorkspaceCheckout/);
 });
@@ -69,6 +74,8 @@ test("workspace vocabulary owns the runtime, test, and eval filenames", async ()
   const currentPaths = [
     "agent/lib/workspace-paths.ts",
     "agent/lib/workspace-checkout.ts",
+    "agent/lib/workflow-session.ts",
+    "tests/workflow-session.test.mjs",
     "agent/tools/apply_gtm_workspace_changes.ts",
     "tests/workspace-paths.test.mjs",
     "tests/workspace-checkout.test.mjs",

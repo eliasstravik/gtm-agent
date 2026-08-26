@@ -18,7 +18,12 @@ import { fileURLToPath } from "node:url";
 export const EXPECTED_SOURCE_URL =
   "https://github.com/eliasstravik/gtm-skills.git";
 
-export const EXPECTED_SKILLS = ["gtm-icp", "gtm-persona", "gtm-workspace"];
+export const EXPECTED_SKILLS = [
+  "gtm-icp",
+  "gtm-persona",
+  "gtm-workflow",
+  "gtm-workspace",
+];
 
 const LEGACY_TRANSITION_SKILLS = [
   "gtm-account-research",

@@ -1,6 +1,6 @@
 # Getting started — deploy GTM Agent
 
-GTM Agent is an open-source Eve agent that brings three focused GTM workflows into Slack. Deploy it with Slack only, or connect one GitHub repository for durable organization, ICP, persona, member, and suborganization workspace content.
+GTM Agent is an open-source Eve agent that brings four focused GTM skills into Slack. Deploy it with Slack only, connect one GitHub repository for durable organization, ICP, persona, member, and suborganization workspace content, and optionally add the workspace's own Turso database so the agent can build and run saved GTM workflows.
 
 > [!IMPORTANT]
 > **Breaking deployment change:** when upgrading, rename `GTM_CONTEXT_REPOSITORY` to `GTM_WORKSPACE_REPOSITORY` before redeploying. The former variable is no longer recognized.
@@ -12,6 +12,7 @@ You need:
 - A Vercel account with Eve/Workflow, Vercel Sandbox, Connect, and AI Gateway available
 - A Slack workspace where you can install the generated app
 - For workspace mode, one existing GitHub repository with a `main` branch and root `ORG.md`; a legacy root `org.md` is accepted so the workspace can be migrated
+- For workflow hosting, one Turso database dedicated to that workspace (the Vercel Marketplace Turso integration works) and, for model calls inside workflows, a separate budgeted Vercel AI Gateway key
 
 The agent repository and the workspace repository are different things. This repository contains the executable agent and its locked workflow snapshot. Your workspace repository contains your organization’s private GTM definitions. Never set `GTM_WORKSPACE_REPOSITORY` to this repository.
 
@@ -38,6 +39,19 @@ GitHub connector creation cannot currently be guaranteed by the Deploy Button wi
 
 Leave `GITHUB_CONNECTOR` and `GTM_WORKSPACE_REPOSITORY` unset. The agent can load the bundled workflows and explain their prerequisites without inventing another memory system.
 
+### Optional — host GTM workflows against your Turso database
+
+Workflow hosting needs the connected workspace. After the GitHub connector works:
+
+1. Create one Turso database for this workspace, for example by installing the Turso integration from the Vercel Marketplace on the agent project. It sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`; otherwise set both yourself. The URL must be a bare `libsql://` or `https://` host.
+2. Create a separate Vercel AI Gateway key with a spending budget for workflow model calls and set it as `GTM_WORKFLOW_GATEWAY_API_KEY`. Do not reuse the deployment's own `AI_GATEWAY_API_KEY`.
+3. If accepted workflow adapters call third-party providers, list their exact hostnames in `GTM_WORKFLOW_PROVIDER_HOSTS`, comma-separated.
+4. Redeploy.
+
+Every sandbox session then runs with `GTM_SANDBOX=1`, `GTM_AGENT_BACKEND=api`, and `TURSO_DATABASE_URL`. The Turso token and the Gateway key are injected at the sandbox firewall for their exact hosts and never enter the sandbox. Sandbox egress opens only to the npm registry, your Turso host, the Gateway host, and the listed provider hosts.
+
+Workflows built from Slack run as `Runs: on this computer` inside the sandbox. Deploying a workflow to Vercel from Slack is not available: the sandbox has no Vercel CLI and no deploy credential. Create scheduled or webhook workflows, or approvals that must outlive a Slack session, with `/gtm-workflow` at a keyboard.
+
 ## 3. Verify the deployment
 
 Open the production deployment’s `/eve/v1/health` endpoint. It should report healthy before you test Slack.
@@ -58,11 +72,17 @@ With a workspace connected, try:
 Read our saved ICPs and tell me which one best fits example.com. Cite the facts you used.
 ```
 
+With workflow hosting configured, try:
+
+```text
+Create a workflow that scores a list of domains against our enterprise ICP, show me the dry run, and stop before any real spend.
+```
+
 When a workspace-dependent job lacks the required repository, ICPs, or personas, GTM Agent stops and explains the missing prerequisite instead of fabricating workspace content.
 
 ## 5. Review a durable workspace change
 
-GTM Agent can propose changes only to the documented root contract, organization, ICP, persona, member, and suborganization paths.
+GTM Agent can propose changes only to the documented root contract, organization, ICP, persona, member, and suborganization paths, plus the tracked files of the root `workflows/` project. It never submits `.env` files, `node_modules/`, or workflow runtime state; those stay ignored inside the sandbox checkout.
 
 Before any write, Eve’s native approval gate shows the summary, complete affected-path manifest, expected Git HEAD, and full additions or deletions. An approved request creates exactly one commit on `main`. A denial, invalid request, or changed remote HEAD creates no commit.
 
@@ -72,6 +92,9 @@ Before any write, Eve’s native approval gate shows the summary, complete affec
 - **The GitHub connector was not created:** create it with `vercel connect create github` or in Vercel Connect settings, grant one repository, set `GITHUB_CONNECTOR`, and redeploy.
 - **A write reports a conflict:** another writer advanced `main`. Start a fresh Slack thread so the agent reads the new HEAD.
 - **A commit succeeded but the session is stale:** use the returned GitHub commit URL as the durable result and start a fresh Slack thread.
+- **The agent says workflow hosting is not configured:** set both `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` on a deployment that already has the GitHub workspace variables, then redeploy.
+- **A workflow model call fails with a missing Gateway key:** set `GTM_WORKFLOW_GATEWAY_API_KEY` to a budgeted Gateway key and redeploy.
+- **A workflow adapter cannot reach its provider:** add the exact hostname to `GTM_WORKFLOW_PROVIDER_HOSTS`; the sandbox denies every other host.
 
 ## Where to go next
 

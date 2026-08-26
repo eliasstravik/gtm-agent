@@ -18,6 +18,7 @@ import {
   markWorkspaceCheckoutStale,
   refreshWorkspaceCheckout,
 } from "../lib/workspace-checkout.ts";
+import { createSessionNetworkPolicy } from "../lib/workflow-session.ts";
 import {
   WorkspaceConflictError,
   createCommitOnMain,
@@ -89,7 +90,7 @@ const inputSchema = z
 
 export default defineTool({
   description:
-    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main.",
+    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state.",
   inputSchema,
   approval: always(),
   async execute(input, ctx) {
@@ -103,6 +104,7 @@ export default defineTool({
     }
 
     const workspace = configuration.workspace;
+    const baselinePolicy = createSessionNetworkPolicy(configuration.workflow);
     const mutation = validateWorkspaceMutation(input);
     const sandbox = await ctx.getSandbox();
     const token = await getToken(workspace.connector, {
@@ -161,6 +163,7 @@ export default defineTool({
         refresh: (commitSha) =>
           refreshWorkspaceCheckout({
             authorization,
+            baselinePolicy,
             commitSha,
             workspace,
             sandbox,
