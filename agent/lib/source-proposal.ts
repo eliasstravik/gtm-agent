@@ -15,6 +15,13 @@ import {
 
 const COMMAND_TIMEOUT_MS = 30_000;
 
+export class NoSourceChangesError extends Error {
+  constructor() {
+    super("No Eve source changes are ready to preview.");
+    this.name = "NoSourceChangesError";
+  }
+}
+
 export type CapturedSourceChange =
   | { readonly operation: "delete"; readonly path: string }
   | { readonly content: string; readonly operation: "write"; readonly path: string };
@@ -41,7 +48,7 @@ export async function captureSourceProposal(
 
   const statuses = parseSourceStatus(statusResult.stdout);
   if (statuses.length === 0) {
-    throw new Error("No Eve source changes are ready to preview.");
+    throw new NoSourceChangesError();
   }
   if (statuses.length > MAX_SOURCE_PATHS) {
     throw new Error(`An Eve source proposal may change at most ${MAX_SOURCE_PATHS} paths.`);

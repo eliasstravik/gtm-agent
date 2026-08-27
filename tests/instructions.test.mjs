@@ -97,6 +97,8 @@ test("agent-source changes stay outside the workspace writer", () => {
     /starts in `gtm-skills`/i,
     /draft pull request/i,
     /never merges or deploys/i,
+    /already_absent.*no_changes/is,
+    /Relay every source-editor outcome/i,
   ]) {
     assert.match(instructions, pattern);
   }

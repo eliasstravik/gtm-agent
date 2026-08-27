@@ -17,15 +17,23 @@ export default defineTool({
     const path = sourceAbsolutePath(source.checkoutDirectory, input.path);
     const sandbox = await ctx.getSandbox();
     if ((await sandbox.readTextFile({ path })) === null) {
-      throw new Error(`Eve source file not found: ${input.path}.`);
+      return {
+        status: "already_absent" as const,
+        path: input.path,
+        deleted: false,
+        alreadyAbsent: true,
+      };
     }
-    const result = await sandbox.run({
-      command: `set -euo pipefail\nrm -- "${path}"`,
-      abortSignal: AbortSignal.timeout(10_000),
-    });
-    if (result.exitCode !== 0) {
+    try {
+      await sandbox.removePath({ path });
+    } catch {
       throw new Error("The isolated sandbox could not delete the selected schedule.");
     }
-    return { path: input.path, deleted: true };
+    return {
+      status: "deleted" as const,
+      path: input.path,
+      deleted: true,
+      alreadyAbsent: false,
+    };
   },
 });

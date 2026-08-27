@@ -32,6 +32,7 @@ const REPOSITORY_PATTERN =
 const HOSTNAME_PATTERN =
   /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 const DATABASE_URL_PATTERN = /^(?:libsql|https):\/\/(?<host>[^/?#:@]+)$/;
+const SOURCE_CHECKOUT_ROOT = "/workspace/.eve-source";
 /** Hosts a provider allowlist can never open: they carry other trust decisions. */
 const RESERVED_PROVIDER_HOSTS: ReadonlySet<string> = new Set([
   "github.com",
@@ -216,7 +217,7 @@ function parseSourceProposalConfiguration(
     ...repository,
     allowedSlackUserIds,
     branch: WORKSPACE_BRANCH,
-    checkoutDirectory: `$HOME/.eve-source/${repository.repo}`,
+    checkoutDirectory: `${SOURCE_CHECKOUT_ROOT}/${repository.repo}`,
     connector,
     deployedSha: deployedSha.toLowerCase(),
   };

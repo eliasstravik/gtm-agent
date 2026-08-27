@@ -71,7 +71,7 @@ test("source proposal mode fixes repository, deployed revision, and Slack princi
     {
       allowedSlackUserIds: ["U012345678", "U087654321"],
       branch: "main",
-      checkoutDirectory: "$HOME/.eve-source/eve-agent",
+      checkoutDirectory: "/workspace/.eve-source/eve-agent",
       connector: "github/eve-source",
       deployedSha: "a".repeat(40),
       owner: "acme-inc",

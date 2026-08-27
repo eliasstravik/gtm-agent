@@ -5,6 +5,7 @@ import {
   assertSourceDeletion,
   assertSourceWrite,
   classifySourcePath,
+  sourceAbsolutePath,
 } from "../agent/lib/source-paths.ts";
 
 test("source allowlist contains only instructions and direct native schedules", () => {
@@ -30,5 +31,23 @@ test("instructions can be edited but only schedules can be deleted", () => {
   assert.throws(
     () => assertSourceWrite("agent/schedules/joke.ts", "bad\0content"),
     /UTF-8 text/i,
+  );
+});
+
+test("source file API paths are concrete sandbox-absolute paths", () => {
+  assert.equal(
+    sourceAbsolutePath(
+      "/workspace/.eve-source/eve",
+      "agent/schedules/daily-joke.ts",
+    ),
+    "/workspace/.eve-source/eve/agent/schedules/daily-joke.ts",
+  );
+  assert.throws(
+    () =>
+      sourceAbsolutePath(
+        "$HOME/.eve-source/eve",
+        "agent/schedules/daily-joke.ts",
+      ),
+    /absolute/i,
   );
 });

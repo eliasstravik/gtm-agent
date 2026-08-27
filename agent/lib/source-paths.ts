@@ -41,5 +41,10 @@ export function sourceAbsolutePath(
   path: string,
 ): string {
   classifySourcePath(path);
+  if (!checkoutDirectory.startsWith("/")) {
+    throw new Error(
+      "The Eve source checkout directory must be an absolute sandbox path.",
+    );
+  }
   return `${checkoutDirectory}/${path}`;
 }

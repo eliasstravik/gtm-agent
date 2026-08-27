@@ -113,11 +113,12 @@ export async function verifySourceCheckout(
 function createCloneCommand(source: SourceProposalConfiguration): string {
   return `set -euo pipefail
 repo_dir="${source.checkoutDirectory}"
-mkdir -p "$HOME/.eve-source"
+mkdir -p "$(dirname "$repo_dir")"
 mkdir "$repo_dir"
 git clone --depth=1 --single-branch --branch "${source.branch}" --no-tags \\
   "https://github.com/${source.repository}.git" "$repo_dir"
-git -C "$repo_dir" remote remove origin`;
+git -C "$repo_dir" remote remove origin
+mkdir -p "$repo_dir/agent/schedules"`;
 }
 
 function createVerificationCommand(source: SourceProposalConfiguration): string {

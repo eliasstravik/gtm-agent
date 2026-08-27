@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@vercel/connect':
         specifier: 2.0.0
-        version: 2.0.0(ai@7.0.83(zod@4.4.3))(eve@0.47.0(ai@7.0.83(zod@4.4.3)))
+        version: 2.0.0(ai@7.0.83(zod@4.4.3))(eve@0.47.1(ai@7.0.83(zod@4.4.3)))
       '@vercel/oidc':
         specifier: 3.8.5
         version: 3.8.5
@@ -18,8 +18,8 @@ importers:
         specifier: 7.0.83
         version: 7.0.83(zod@4.4.3)
       eve:
-        specifier: 0.47.0
-        version: 0.47.0(ai@7.0.83(zod@4.4.3))
+        specifier: 0.47.1
+        version: 0.47.1(ai@7.0.83(zod@4.4.3))
       octokit:
         specifier: 5.0.5
         version: 5.0.5
@@ -504,8 +504,8 @@ packages:
       wrangler:
         optional: true
 
-  eve@0.47.0:
-    resolution: {integrity: sha512-4emDA3DslEY80GDI850lUEn+IetcGIb7CwrJ8GKdxL8XDsvhltD4raxmUHtnUg1dLSjbB3TZVF3ZxE89oFtiog==}
+  eve@0.47.1:
+    resolution: {integrity: sha512-OCePVXUOqUQe6cxrB7D6arq55VamsCrnm81mnyO41qe8+eWHhGnpA4TIv8oZxnCC9Ny3vBVGp6ZEv868+XQDXg==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
@@ -1102,12 +1102,12 @@ snapshots:
     dependencies:
       execa: 5.1.1
 
-  '@vercel/connect@2.0.0(ai@7.0.83(zod@4.4.3))(eve@0.47.0(ai@7.0.83(zod@4.4.3)))':
+  '@vercel/connect@2.0.0(ai@7.0.83(zod@4.4.3))(eve@0.47.1(ai@7.0.83(zod@4.4.3)))':
     dependencies:
       '@vercel/oidc': 3.8.5
     optionalDependencies:
       ai: 7.0.83(zod@4.4.3)
-      eve: 0.47.0(ai@7.0.83(zod@4.4.3))
+      eve: 0.47.1(ai@7.0.83(zod@4.4.3))
 
   '@vercel/oidc@3.2.0': {}
 
@@ -1153,7 +1153,7 @@ snapshots:
       httpxy: 0.5.5
       srvx: 0.11.22
 
-  eve@0.47.0(ai@7.0.83(zod@4.4.3)):
+  eve@0.47.1(ai@7.0.83(zod@4.4.3)):
     dependencies:
       ai: 7.0.83(zod@4.4.3)
       nitro: 3.0.260610-beta

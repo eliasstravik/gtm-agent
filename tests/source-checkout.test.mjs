@@ -9,7 +9,7 @@ import {
 const source = {
   allowedSlackUserIds: ["U012345678"],
   branch: "main",
-  checkoutDirectory: "$HOME/.eve-source/eve",
+  checkoutDirectory: "/workspace/.eve-source/eve",
   connector: "github/eve-source",
   deployedSha: "a".repeat(40),
   owner: "acme",
@@ -45,6 +45,7 @@ test("source hydration uses exact-repository read egress then closes it", async 
   assert.deepEqual(policies, ["deny-all"]);
   assert.equal(result.head, source.deployedSha);
   assert.match(commands[0], /--depth=1/);
+  assert.match(commands[0], /agent\/schedules/);
   assert.match(commands[0], /remote remove origin/);
   assert.doesNotMatch(commands.join("\n"), /Basic secret/);
   assert.match(commands[1], /agent\/agent\.ts/);

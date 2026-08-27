@@ -260,6 +260,8 @@ test("source editor is isolated, path-limited, and draft-PR-only", async () => {
   assert.match(instructions, /agent\/instructions\.md/);
   assert.match(instructions, /agent\/schedules/);
   assert.match(instructions, /same subagent session/i);
+  assert.match(instructions, /repository-relative paths/i);
+  assert.match(instructions, /successful no-op/i);
   assert.match(sandbox, /isolated, credential-free/i);
   assert.match(sandbox, /contents:read/);
   assert.doesNotMatch(sandbox, /contents:write|pull_requests:write/);
@@ -271,6 +273,14 @@ test("source editor is isolated, path-limited, and draft-PR-only", async () => {
   assert.match(publishing, /draft:\s*true/);
   assert.match(publishing, /maintainer_can_modify:\s*false/);
   assert.doesNotMatch(publishing, /updateRef|pulls\.merge|rest\.repos\.createDeployment/);
+
+  for (const name of ["list_source_files", "read_source_file"]) {
+    assert.equal(
+      await exists(`agent/subagents/source_editor/tools/${name}.ts`),
+      true,
+      name,
+    );
+  }
 
   for (const name of ["bash", "write_file", "web_fetch", "web_search"]) {
     assert.match(

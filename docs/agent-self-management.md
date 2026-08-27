@@ -19,6 +19,12 @@ The publisher has no update-to-`main`, merge, approval, retarget, close, or
 deployment operation. Use an external coding session for every source surface
 outside the narrow allowlist.
 
+The source checkout uses the concrete sandbox path
+`/workspace/.eve-source/<repo>`. Source tools accept only repository-relative
+allowlisted paths, so shell-only `$HOME` expansion never crosses into the
+sandbox file API. Deleting an already absent schedule and previewing an
+unchanged checkout are successful no-ops that must be returned to Slack.
+
 ## Implemented flow
 
 1. Verify that the requester is an allowed Slack principal.

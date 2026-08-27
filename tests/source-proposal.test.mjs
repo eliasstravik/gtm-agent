@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   captureSourceProposal,
+  NoSourceChangesError,
   parseSourceStatus,
 } from "../agent/lib/source-proposal.ts";
 
@@ -16,6 +17,32 @@ test("status capture accepts only unstaged writes, untracked files, and deletion
     { operation: "write", path: "agent/schedules/joke.ts" },
   ]);
   assert.throws(() => parseSourceStatus("R  agent/a.ts -> agent/b.ts\n"), /unsupported/i);
+});
+
+test("an unchanged source checkout has a distinct no-change result", async () => {
+  await assert.rejects(
+    captureSourceProposal(
+      {
+        async readTextFile() {
+          throw new Error("readTextFile must not run without changed paths");
+        },
+        async run() {
+          return { exitCode: 0, stderr: "", stdout: "" };
+        },
+      },
+      {
+        allowedSlackUserIds: ["U012345678"],
+        branch: "main",
+        checkoutDirectory: "/workspace/.eve-source/eve",
+        connector: "github/eve-source",
+        deployedSha: "a".repeat(40),
+        owner: "acme",
+        repo: "eve",
+        repository: "acme/eve",
+      },
+    ),
+    NoSourceChangesError,
+  );
 });
 
 test("proposal capture freezes a complete allowed diff and leaves the index clean", async () => {
