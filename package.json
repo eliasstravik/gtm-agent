@@ -19,16 +19,16 @@
     "check": "pnpm skills:check && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
-    "@vercel/connect": "0.6.1",
+    "@vercel/connect": "2.0.0",
     "@vercel/oidc": "3.8.5",
-    "ai": "7.0.55",
-    "eve": "0.31.0",
+    "ai": "7.0.83",
+    "eve": "0.47.0",
     "octokit": "5.0.5",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@types/node": "24.3.0",
-    "typescript": "5.9.2"
+    "@types/node": "24.13.3",
+    "typescript": "7.0.2"
   },
   "engines": {
     "node": "24.x"

@@ -18,4 +18,13 @@ Please report suspected vulnerabilities privately to the repository owner. Do no
 - Accepted risk: Eve's framework `web_search` and `web_fetch` tools run in the host runtime, outside the sandbox firewall. They are governed by instructions, not by egress policy: the agent must not put private workspace facts into a search query or fetch a non-public or token-bearing URL. Treat workspace content as a potential prompt-injection source when reviewing transcripts.
 - Tracked files of the root `workflows/` project pass through the same approval tool and path contract; `.env*` (except `.env.example`), `node_modules/`, and ignored runtime state are rejected as commit paths.
 
+## Agent-source changes
+
+The deployed agent has no source publisher. Sandbox edits do not change its GitHub
+repository or deployment. When Eve's production self-modification package is
+released, this project will accept only isolated, exact-diff-approved draft pull
+requests. The publisher must use a short-lived repository-bound GitHub App token
+and cannot update `main`, merge, approve, retarget, close, or deploy. See
+`docs/agent-self-management.md` for the complete adoption gate.
+
 Before public release, complete every external item in the README release checklist with disposable accounts and a disposable workspace fixture.

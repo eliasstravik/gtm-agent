@@ -105,6 +105,10 @@ Yes, when the deployment sets `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `TUR
 
 Skills may inspect safe public sources when browsing is available. They do not write to a CRM or another external system; accepted workspace changes use the sole approval-gated GitHub tool.
 
+### Can the agent update itself?
+
+Not directly in production. A sandbox edit does not change the repository or deployment. The planned flow lets the agent prepare an isolated, approval-gated draft pull request. A human reviews and merges it, then Vercel deploys `main`. GTM skills remain owned by `gtm-skills` and are synced into the agent after their source changes. See [agent self-management](docs/agent-self-management.md).
+
 ### What does it cost?
 
 GTM Agent is free, open source, and [MIT licensed](LICENSE). The bundled GTM Skills carry their separate [MIT license](LICENSES/gtm-skills-MIT.txt). Vercel, Slack, GitHub, Turso, model, and research-provider usage may be subject to their own plans and charges.

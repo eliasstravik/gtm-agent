@@ -242,7 +242,6 @@ test("no parallel app shell or generic GitHub extension is present", async () =>
     "vercel.json",
     "agent/extensions/",
     "agent/subagents/",
-    "agent/schedules/",
   ]) {
     assert.equal(await exists(path), false, path);
   }

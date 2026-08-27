@@ -82,3 +82,17 @@ test("instructions leave domain workflows and no-workspace behavior to skills", 
   assert.match(instructions, /do not invent.*alternate/i);
   assert.doesNotMatch(instructions, /scoring rubric|ICP definition|persona definition/i);
 });
+
+test("agent-source changes stay outside the workspace writer", () => {
+  for (const pattern of [
+    /not GTM workspace changes/i,
+    /never send them to `apply_gtm_workspace_changes`/i,
+    /no agent-source publisher/i,
+    /sandbox edit.*(?:GitHub|deployed agent)/is,
+    /starts in `gtm-skills`/i,
+    /draft pull request/i,
+    /never merges or deploys/i,
+  ]) {
+    assert.match(instructions, pattern);
+  }
+});
