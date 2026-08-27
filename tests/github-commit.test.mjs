@@ -110,6 +110,122 @@ test("multiple additions and deletions become one GraphQL mutation", async () =>
   assert.equal(result.commitSha, "b".repeat(40));
 });
 
+test("an attributed commit uses an atomic REST ref update", async () => {
+  const calls = [];
+  const git = {
+    async getCommit(value) {
+      calls.push(["getCommit", value]);
+      return { data: { tree: { sha: "tree-base" } } };
+    },
+    async createBlob(value) {
+      calls.push(["createBlob", value]);
+      return { data: { sha: "blob-new" } };
+    },
+    async createTree(value) {
+      calls.push(["createTree", value]);
+      return { data: { sha: "tree-new" } };
+    },
+    async createCommit(value) {
+      calls.push(["createCommit", value]);
+      return {
+        data: {
+          sha: "b".repeat(40),
+          html_url: `https://github.com/acme/repo/commit/${"b".repeat(40)}`,
+        },
+      };
+    },
+    async updateRef(value) {
+      calls.push(["updateRef", value]);
+      return {};
+    },
+  };
+  const author = {
+    name: "Acme Deploys",
+    email: "123456+acme@users.noreply.github.com",
+  };
+
+  const result = await createCommitOnMain(
+    { async graphql() {}, rest: { git } },
+    {
+      owner: "acme",
+      repo: "repo",
+      expectedHead: input.expectedHead,
+      message: "Update workspace",
+      author,
+      additions: input.additions,
+      deletions: [{ path: "personas/old/PERSONA.md" }],
+    },
+  );
+
+  assert.deepEqual(calls.map(([name]) => name), [
+    "getCommit",
+    "createBlob",
+    "createTree",
+    "createCommit",
+    "updateRef",
+  ]);
+  assert.deepEqual(calls[3][1].author, author);
+  assert.deepEqual(calls[3][1].parents, [input.expectedHead]);
+  assert.equal(calls[4][1].force, false);
+  assert.equal(calls[4][1].ref, "heads/main");
+  assert.equal(result.commitSha, "b".repeat(40));
+});
+
+test("an attributed commit normalizes only rejected ref updates as conflicts", async () => {
+  const makeOctokit = (status) => ({
+    async graphql() {},
+    rest: {
+      git: {
+        async getCommit() {
+          return { data: { tree: { sha: "tree-base" } } };
+        },
+        async createBlob() {
+          return { data: { sha: "blob-new" } };
+        },
+        async createTree() {
+          return { data: { sha: "tree-new" } };
+        },
+        async createCommit() {
+          return {
+            data: {
+              sha: "b".repeat(40),
+              html_url: `https://github.com/acme/repo/commit/${"b".repeat(40)}`,
+            },
+          };
+        },
+        async updateRef() {
+          throw Object.assign(new Error(`GitHub returned ${status}`), { status });
+        },
+      },
+    },
+  });
+  const attributedInput = {
+    owner: "acme",
+    repo: "repo",
+    expectedHead: input.expectedHead,
+    message: "Update workspace",
+    author: {
+      name: "Acme Deploys",
+      email: "123456+acme@users.noreply.github.com",
+    },
+    additions: input.additions,
+    deletions: [],
+  };
+
+  await assert.rejects(
+    createCommitOnMain(makeOctokit(409), attributedInput),
+    WorkspaceConflictError,
+  );
+  await assert.rejects(
+    createCommitOnMain(makeOctokit(500), attributedInput),
+    (error) => {
+      assert.equal(error.status, 500);
+      assert.ok(!(error instanceof WorkspaceConflictError));
+      return true;
+    },
+  );
+});
+
 test("GitHub STALE_DATA is normalized to the same fresh-thread conflict", async () => {
   await assert.rejects(
     createCommitOnMain(

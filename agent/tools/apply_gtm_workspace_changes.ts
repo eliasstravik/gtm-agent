@@ -160,6 +160,7 @@ export default defineTool({
             repo: workspace.repo,
             expectedHead: mutation.expectedHead,
             message: mutation.message,
+            author: workspace.commitAuthor,
             additions: mutation.additions,
             deletions: mutation.deletions,
           }),

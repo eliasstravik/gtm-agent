@@ -31,8 +31,9 @@ GitHub connector creation cannot currently be guaranteed by the Deploy Button wi
 3. Set the returned connector identifier as `GITHUB_CONNECTOR`.
 4. Create one Vercel project connected to the workspace repository. Set Root Directory to `workflows`, Production Branch to `main`, skip builds when `workflows/` is unchanged, and expose Vercel system environment variables.
 5. Configure that project with the workspace Turso pair, `GTM_RUN_SECRET`, matching `CRON_SECRET` when schedules exist, and the workflow Gateway/provider variables it needs.
-6. Set `GTM_WORKFLOW_VERCEL_URL` and the matching `GTM_WORKFLOW_RUN_SECRET` on the Eve project. Add a Trusted Sources rule permitting this Eve production project to call the protected workflow production project with OIDC.
-7. Redeploy Eve.
+6. Set `GTM_WORKSPACE_COMMIT_AUTHOR_NAME` and `GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL` to the verified Git identity connected to the Vercel project owner (Hobby) or project team member (Pro). The GitHub App remains the committer.
+7. Set `GTM_WORKFLOW_VERCEL_URL` and the matching `GTM_WORKFLOW_RUN_SECRET` on the Eve project. Add a Trusted Sources rule permitting this Eve production project to call the protected workflow production project with OIDC.
+8. Redeploy Eve.
 
 `GITHUB_CONNECTOR` and `GTM_WORKSPACE_REPOSITORY` must either both be set or both be absent.
 
@@ -96,6 +97,7 @@ Before any write, Eve’s native approval gate shows the summary, complete affec
 - **A write reports a conflict:** another writer advanced `main`. Start a fresh Slack thread so the agent reads the new HEAD.
 - **A commit succeeded but the session is stale:** use the returned GitHub commit URL as the durable result and start a fresh Slack thread.
 - **The agent says workflow hosting is not configured:** set both `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` on a deployment that already has the GitHub workspace variables, then redeploy.
+- **A Git deployment is blocked by its author:** configure the commit-author name and verified email to map to the Vercel project owner or team member, then create a fresh commit.
 - **A production workflow cannot start:** set both `GTM_WORKFLOW_VERCEL_URL` and `GTM_WORKFLOW_RUN_SECRET`, confirm the workflow project is connected to the workspace repository's `main` branch with root `workflows`, and confirm system environment variables and the Trusted Sources rule are enabled.
 - **A workflow model call fails with a missing Gateway key:** set `GTM_WORKFLOW_GATEWAY_API_KEY` to a budgeted Gateway key and redeploy.
 - **A workflow adapter cannot reach its provider:** add the exact hostname to `GTM_WORKFLOW_PROVIDER_HOSTS`; the sandbox denies every other host.

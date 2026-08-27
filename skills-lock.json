@@ -3,7 +3,7 @@
   "status": "ready",
   "source": {
     "url": "https://github.com/eliasstravik/gtm-skills.git",
-    "commit": "c2de3555d6cc16e37aabbdb36da57aeb5463533f",
+    "commit": "a73f19a4ff0fb2427c30f5d3e17b30b2b90ab8ca",
     "license": "LICENSES/gtm-skills-MIT.txt",
     "licenseSha256": "34d04d3fd8fa65074d86e9dbfa2717d9c8d0237b1218cde0ece5d80eeae6fe2d"
   },
@@ -26,7 +26,7 @@
     "gtm-workflow/references/agents.md": "e742597dfb3b12c7d9c0311c62f08bb5a7c42475defe183e58141a5b701967fd",
     "gtm-workflow/references/contract.md": "eea2ea3c5a3123c1f93553ea19227afad035e3a1dd209c23b61ec7ff682227e2",
     "gtm-workflow/references/conversation.md": "ad3b27dfc3f51786249f64bd940dbb94142f922fea24b168e636b20c512c00d2",
-    "gtm-workflow/references/deploy.md": "000d2c10a506b26ce6f58c6612202ba6b7f9be2eca292fa2191b9168804fae91",
+    "gtm-workflow/references/deploy.md": "20ec5a85bcfd7ba25e472601904e5e7d4c246d4de147c77d2befd2a43de31531",
     "gtm-workflow/references/flows.md": "2d433b5e767652ff3c9bf2431c57326439a849cfcd6a2bd412ba30557f9c2d71",
     "gtm-workflow/references/open.md": "c1bbebc0211b3ecd2747cf34d8d144f0f323f0ff9da855e366bca60146289881",
     "gtm-workflow/references/providers.md": "d4a5e1e33a557d3d10939949e404c44a825645fced4c39301e8788834ec01f22",

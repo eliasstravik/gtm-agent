@@ -14,6 +14,10 @@ export const WORKFLOW_CONTROL_CONFIGURATION_ERROR =
   "GTM workflow control configuration is incomplete: set GTM_WORKFLOW_VERCEL_URL and GTM_WORKFLOW_RUN_SECRET together, or unset both.";
 export const WORKFLOW_CONTROL_HOST_ERROR =
   "GTM workflow control requires the connected workspace and hosted Turso workflow runtime.";
+export const WORKSPACE_COMMIT_AUTHOR_CONFIGURATION_ERROR =
+  "Workspace commit author configuration is incomplete: set GTM_WORKSPACE_COMMIT_AUTHOR_NAME and GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL together, or unset both.";
+export const WORKFLOW_CONTROL_AUTHOR_ERROR =
+  "GTM workflow control requires a commit author mapped to the Vercel project owner.";
 
 const REPOSITORY_PATTERN =
   /^(?<owner>[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?)\/(?<repo>[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?)$/;
@@ -39,6 +43,10 @@ export type WorkspaceRepository = {
 export type ConnectedWorkspaceConfiguration = WorkspaceRepository & {
   readonly branch: typeof WORKSPACE_BRANCH;
   readonly checkoutDirectory: string;
+  readonly commitAuthor: {
+    readonly email: string;
+    readonly name: string;
+  } | null;
   readonly connector: string;
   readonly staleMarker: string;
 };
@@ -111,18 +119,45 @@ export function parseConfiguration(
 
   const repository = parseWorkspaceRepository(repositoryValue);
   const workflow = parseWorkflowConfiguration(environment, true);
+  const commitAuthor = parseWorkspaceCommitAuthor(environment);
+  const workflowControl = parseWorkflowControlConfiguration(environment, true, workflow);
+  if (workflowControl !== null && commitAuthor === null) {
+    throw new Error(WORKFLOW_CONTROL_AUTHOR_ERROR);
+  }
   return {
     slackConnector,
     workflow,
-    workflowControl: parseWorkflowControlConfiguration(environment, true, workflow),
+    workflowControl,
     workspace: {
       ...repository,
       branch: WORKSPACE_BRANCH,
       checkoutDirectory: `$HOME/.gtm/${repository.repo}`,
+      commitAuthor,
       connector,
       staleMarker: `$HOME/.gtm/.${repository.repo}.stale`,
     },
   };
+}
+
+function parseWorkspaceCommitAuthor(
+  environment: Readonly<Record<string, string | undefined>>,
+): ConnectedWorkspaceConfiguration["commitAuthor"] {
+  const name = present(environment.GTM_WORKSPACE_COMMIT_AUTHOR_NAME);
+  const email = present(environment.GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL);
+  if ((name === undefined) !== (email === undefined)) {
+    throw new Error(WORKSPACE_COMMIT_AUTHOR_CONFIGURATION_ERROR);
+  }
+  if (name === undefined || email === undefined) return null;
+  if (
+    name.length > 100 ||
+    email.length > 254 ||
+    !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)
+  ) {
+    throw new Error(
+      "GTM workspace commit author must be one bounded name and valid email address.",
+    );
+  }
+  return { email, name };
 }
 
 function parseWorkflowControlConfiguration(

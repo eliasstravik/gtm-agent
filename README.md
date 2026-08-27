@@ -99,7 +99,7 @@ It validates the complete path manifest and expected HEAD, asks for native appro
 
 ### Can the agent run GTM workflows?
 
-Yes, when the deployment sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` for the workspace's own Turso database. The sandbox drafts the workflow project in scratch space and submits accepted tracked files for approval. Local workflows run in the sandbox; Vercel workflows deploy when that approved atomic commit reaches workspace `main`. Eve waits for the exact Git SHA before starting production. The Turso token and optional budgeted Gateway key are injected at the sandbox firewall, so no workflow credential enters the sandbox.
+Yes, when the deployment sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` for the workspace's own Turso database. The sandbox drafts the workflow project in scratch space and submits accepted tracked files for approval. Local workflows run in the sandbox; Vercel workflows deploy when that approved atomic commit reaches workspace `main`. The commit uses a configured, verified Git author recognized by Vercel while the repository-bound GitHub App remains the committer. Eve waits for the exact Git SHA before starting production. The Turso token and optional budgeted Gateway key are injected at the sandbox firewall, so no workflow credential enters the sandbox.
 
 ### Can the agent browse the web or update our CRM?
 

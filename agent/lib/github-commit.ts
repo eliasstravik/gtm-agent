@@ -1,4 +1,5 @@
 import type { WorkspaceMutation } from "./workspace-paths.ts";
+import type { Octokit } from "octokit";
 import { validateWorkspaceMutation } from "./workspace-paths.ts";
 import { WORKSPACE_BRANCH } from "./config.ts";
 import { EgressNotClosedError } from "./workspace-checkout.ts";
@@ -96,8 +97,15 @@ export async function createCommitOnMain(
         readonly commit: { readonly oid: string; readonly url: string };
       };
     }>;
+    readonly rest?: {
+      readonly git: Pick<
+        Octokit["rest"]["git"],
+        "createBlob" | "createCommit" | "createTree" | "getCommit" | "updateRef"
+      >;
+    };
   },
   input: {
+    readonly author?: { readonly email: string; readonly name: string } | null;
     readonly owner: string;
     readonly repo: string;
     readonly expectedHead: string;
@@ -106,6 +114,72 @@ export async function createCommitOnMain(
     readonly deletions: readonly { readonly path: string }[];
   },
 ): Promise<CommitResult> {
+  if (input.author !== undefined && input.author !== null) {
+    if (octokit.rest === undefined) {
+      throw new Error("The GitHub client cannot create an attributed commit.");
+    }
+    const git = octokit.rest.git;
+    const base = await git.getCommit({
+      owner: input.owner,
+      repo: input.repo,
+      commit_sha: input.expectedHead,
+    });
+    const additions = await Promise.all(
+      input.additions.map(async (entry) => {
+        const blob = await git.createBlob({
+          owner: input.owner,
+          repo: input.repo,
+          content: Buffer.from(entry.content, "utf8").toString("base64"),
+          encoding: "base64",
+        });
+        return {
+          mode: "100644" as const,
+          path: entry.path,
+          sha: blob.data.sha,
+          type: "blob" as const,
+        };
+      }),
+    );
+    const tree = await git.createTree({
+      owner: input.owner,
+      repo: input.repo,
+      base_tree: base.data.tree.sha,
+      tree: [
+        ...additions,
+        ...input.deletions.map((entry) => ({
+          mode: "100644" as const,
+          path: entry.path,
+          sha: null,
+          type: "blob" as const,
+        })),
+      ],
+    });
+    const commit = await git.createCommit({
+      owner: input.owner,
+      repo: input.repo,
+      message: input.message,
+      tree: tree.data.sha,
+      parents: [input.expectedHead],
+      author: input.author,
+    });
+    try {
+      await git.updateRef({
+        owner: input.owner,
+        repo: input.repo,
+        ref: `heads/${WORKSPACE_BRANCH}`,
+        sha: commit.data.sha,
+        force: false,
+      });
+    } catch (error) {
+      if (isRefConflict(error)) throw new WorkspaceConflictError();
+      throw error;
+    }
+    return {
+      commitSha: commit.data.sha,
+      commitUrl: commit.data.html_url,
+    };
+  }
+
   try {
     const result = await octokit.graphql(CREATE_COMMIT_ON_BRANCH, {
       input: {
@@ -147,4 +221,9 @@ function isStaleGitHubError(error: unknown): boolean {
       "type" in entry &&
       entry.type === "STALE_DATA",
   );
+}
+
+function isRefConflict(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("status" in error)) return false;
+  return error.status === 409 || error.status === 422;
 }

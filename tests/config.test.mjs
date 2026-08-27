@@ -39,8 +39,9 @@ test("connected mode derives immutable repository metadata", () => {
       workflow: null,
       workflowControl: null,
       workspace: {
-        branch: "main",
-        checkoutDirectory: "$HOME/.gtm/gtm-workspace",
+      branch: "main",
+      checkoutDirectory: "$HOME/.gtm/gtm-workspace",
+      commitAuthor: null,
         connector: "github/gtm-agent",
         owner: "acme-inc",
         repo: "gtm-workspace",
@@ -136,12 +137,17 @@ const CONTROL = {
   GTM_WORKFLOW_VERCEL_URL: "https://acme-workflows.vercel.app",
   GTM_WORKFLOW_RUN_SECRET: "run-secret",
 };
+const COMMIT_AUTHOR = {
+  GTM_WORKSPACE_COMMIT_AUTHOR_NAME: "Acme Deploys",
+  GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL: "123456+acme@users.noreply.github.com",
+};
 
 test("workflow control fixes the production authority in host configuration", () => {
   const parsed = parseConfiguration({
     ...CONNECTED,
     TURSO_DATABASE_URL: "libsql://acme.turso.io",
     TURSO_AUTH_TOKEN: "turso-secret",
+    ...COMMIT_AUTHOR,
     ...CONTROL,
   });
   assert.deepEqual(parsed.workflowControl, {
@@ -169,11 +175,55 @@ test("workflow control is all-or-nothing and requires the hosted connected works
         SLACK_CONNECTOR: "slack/gtm-agent",
         TURSO_DATABASE_URL: "libsql://acme.turso.io",
         TURSO_AUTH_TOKEN: "turso-secret",
+        ...COMMIT_AUTHOR,
         ...CONTROL,
       }),
     /workspace/i,
   );
-  assert.throws(() => parseConfiguration({ ...CONNECTED, ...CONTROL }), /hosted Turso/i);
+  assert.throws(
+    () => parseConfiguration({ ...CONNECTED, ...COMMIT_AUTHOR, ...CONTROL }),
+    /hosted Turso/i,
+  );
+});
+
+test("workflow control requires an attributed Git commit author", () => {
+  assert.throws(
+    () =>
+      parseConfiguration({
+        ...CONNECTED,
+        TURSO_DATABASE_URL: "libsql://acme.turso.io",
+        TURSO_AUTH_TOKEN: "turso-secret",
+        ...CONTROL,
+      }),
+    /commit author/i,
+  );
+});
+
+test("workspace commit author is paired and validated", () => {
+  assert.deepEqual(
+    parseConfiguration({ ...CONNECTED, ...COMMIT_AUTHOR }).workspace.commitAuthor,
+    {
+      name: "Acme Deploys",
+      email: "123456+acme@users.noreply.github.com",
+    },
+  );
+  assert.throws(
+    () =>
+      parseConfiguration({
+        ...CONNECTED,
+        GTM_WORKSPACE_COMMIT_AUTHOR_NAME: "Acme Deploys",
+      }),
+    /commit author configuration is incomplete/i,
+  );
+  assert.throws(
+    () =>
+      parseConfiguration({
+        ...CONNECTED,
+        GTM_WORKSPACE_COMMIT_AUTHOR_NAME: "Acme Deploys",
+        GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL: "not-an-email",
+      }),
+    /valid email/i,
+  );
 });
 
 test("workflow control rejects ambiguous production URLs", () => {
@@ -181,6 +231,7 @@ test("workflow control rejects ambiguous production URLs", () => {
     ...CONNECTED,
     TURSO_DATABASE_URL: "libsql://acme.turso.io",
     TURSO_AUTH_TOKEN: "turso-secret",
+    ...COMMIT_AUTHOR,
     ...CONTROL,
   };
   for (const [name, value] of [
