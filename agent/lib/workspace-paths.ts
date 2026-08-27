@@ -44,6 +44,8 @@ export const MIGRATION_PATH_PATTERN = /^workflows\/drizzle\/[^/]+\.sql$/;
  */
 const DESTRUCTIVE_SQL_PATTERN =
   /\b(?:drop\s+(?:table|column|index|view|trigger)|alter\s+table\b[^;]*\bdrop\b|truncate\s+table|delete\s+from)\b/i;
+const SCHEMA_SQL_PATTERN =
+  /\b(?:create|alter|drop)\s+(?:table|index|view|trigger)\b/i;
 
 export type WorkspaceManifestEntry = {
   readonly path: string;
@@ -287,15 +289,20 @@ function validateDrizzleMigrationArtifacts(
     }
     const snapshotPath = `workflows/drizzle/meta/${sequence}_snapshot.json`;
     const snapshotContent = additions.get(snapshotPath);
-    if (snapshotContent === undefined) {
+    if (
+      snapshotContent === undefined &&
+      SCHEMA_SQL_PATTERN.test(stripSqlComments(migration.content))
+    ) {
       throw new Error(
         `Migration ${migration.path} must include its generated Drizzle snapshot at ${snapshotPath}.`,
       );
     }
-    try {
-      JSON.parse(snapshotContent);
-    } catch {
-      throw new Error(`Drizzle migration snapshot is not valid JSON: ${snapshotPath}.`);
+    if (snapshotContent !== undefined) {
+      try {
+        JSON.parse(snapshotContent);
+      } catch {
+        throw new Error(`Drizzle migration snapshot is not valid JSON: ${snapshotPath}.`);
+      }
     }
   }
 }

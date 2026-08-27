@@ -91,7 +91,7 @@ const inputSchema = z
       .array(pathSchema.regex(MIGRATION_PATH_PATTERN))
       .max(MAX_PATHS)
       .describe(
-        "Every workflows/drizzle/*.sql file in this change, exactly; empty when none. Each requires the matching generated journal update and snapshot. The tool applies them and verifies their ledger hashes before the commit.",
+        "Every workflows/drizzle/*.sql file in this change, exactly; empty when none. Each requires the generated journal update, and schema DDL also requires its snapshot. The tool applies them and verifies their ledger hashes before the commit.",
       ),
     destructive: z
       .boolean()
@@ -111,7 +111,7 @@ const inputSchema = z
 
 export default defineTool({
   description:
-    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Declared workflow migrations must include their generated Drizzle journal and snapshots; they apply inside a short write window and every SQL hash must be present in the migration ledger before the commit. Vercel workflow changes then deploy through the repository's Git connection. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state.",
+    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Declared workflow migrations must include their generated Drizzle journal and any schema snapshot; they apply inside a short write window and every SQL hash must be present in the migration ledger before the commit. Vercel workflow changes then deploy through the repository's Git connection. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state.",
   inputSchema,
   approval: always(),
   async execute(input, ctx) {

@@ -382,6 +382,18 @@ test("migration SQL must include the matching Drizzle journal entry and snapshot
   assert.throws(() => validateWorkspaceMutation(orphan), /journal|snapshot/i);
 });
 
+test("a journal-registered custom data migration does not require a schema snapshot", () => {
+  const custom = {
+    ...SQL_BASE,
+    manifest: [SQL_BASE.manifest[0], SQL_BASE.manifest[2]],
+    additions: [
+      { path: SQL_BASE.additions[0].path, content: "UPDATE accounts SET score = 0;" },
+      SQL_BASE.additions[2],
+    ],
+  };
+  assert.deepEqual(validateWorkspaceMutation(custom), custom);
+});
+
 test("destructive SQL must be declared and an idle declaration is refused", () => {
   for (const content of [
     "DROP TABLE `accounts`;",
