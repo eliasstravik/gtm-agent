@@ -20,11 +20,13 @@ Please report suspected vulnerabilities privately to the repository owner. Do no
 
 ## Agent-source changes
 
-The deployed agent has no source publisher. Sandbox edits do not change its GitHub
-repository or deployment. When Eve's production self-modification package is
-released, this project will accept only isolated, exact-diff-approved draft pull
-requests. The publisher must use a short-lived repository-bound GitHub App token
-and cannot update `main`, merge, approve, retarget, close, or deploy. See
-`docs/agent-self-management.md` for the complete adoption gate.
+The optional `source_editor` can propose changes only to `agent/instructions.md`
+and direct `agent/schedules/*.md` or `*.ts` files. It is hidden from unlisted
+Slack users, runs in an independent credential-free checkout of the exact
+deployed revision, freezes the complete diff before acceptance, and requires a
+second native approval before a short-lived repository-bound GitHub App token is
+resolved in the trusted runtime. Its publisher can create only a namespaced
+branch and draft pull request. It cannot update `main`, merge, approve, retarget,
+close, or deploy. See `docs/agent-self-management.md`.
 
 Before public release, complete every external item in the README release checklist with disposable accounts and a disposable workspace fixture.

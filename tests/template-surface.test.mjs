@@ -241,8 +241,41 @@ test("no parallel app shell or generic GitHub extension is present", async () =>
     "components/",
     "vercel.json",
     "agent/extensions/",
-    "agent/subagents/",
   ]) {
     assert.equal(await exists(path), false, path);
+  }
+});
+
+test("source editor is isolated, path-limited, and draft-PR-only", async () => {
+  const agent = await read("agent/subagents/source_editor/agent.ts");
+  const instructions = await read("agent/subagents/source_editor/instructions.md");
+  const sandbox = await read("agent/subagents/source_editor/sandbox.ts");
+  const publisher = await read(
+    "agent/subagents/source_editor/tools/publish_source_change.ts",
+  );
+  const publishing = await read("agent/lib/source-publisher.ts");
+
+  assert.match(agent, /defineDynamic/);
+  assert.match(agent, /isAllowedSourceCaller/);
+  assert.match(instructions, /agent\/instructions\.md/);
+  assert.match(instructions, /agent\/schedules/);
+  assert.match(instructions, /same subagent session/i);
+  assert.match(sandbox, /isolated, credential-free/i);
+  assert.match(sandbox, /contents:read/);
+  assert.doesNotMatch(sandbox, /contents:write|pull_requests:write/);
+  assert.match(publisher, /approval:/);
+  assert.match(publisher, /sourceProposalState/);
+  assert.match(publisher, /current\.hash !== accepted\.hash/);
+  assert.match(publisher, /pull_requests:write/);
+  assert.match(publishing, /eve-self-modification/);
+  assert.match(publishing, /draft:\s*true/);
+  assert.match(publishing, /maintainer_can_modify:\s*false/);
+  assert.doesNotMatch(publishing, /updateRef|pulls\.merge|rest\.repos\.createDeployment/);
+
+  for (const name of ["bash", "write_file", "web_fetch", "web_search"]) {
+    assert.match(
+      await read(`agent/subagents/source_editor/tools/${name}.ts`),
+      /disableTool/,
+    );
   }
 });

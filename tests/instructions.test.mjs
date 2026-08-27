@@ -87,7 +87,12 @@ test("agent-source changes stay outside the workspace writer", () => {
   for (const pattern of [
     /not GTM workspace changes/i,
     /never send them to `apply_gtm_workspace_changes`/i,
-    /no agent-source publisher/i,
+    /source_editor/i,
+    /complete trusted diff/i,
+    /integrity hash/i,
+    /same parked `source_editor` child/i,
+    /Accept and open a draft PR/i,
+    /native tool approval.*second durable authorization/is,
     /sandbox edit.*(?:GitHub|deployed agent)/is,
     /starts in `gtm-skills`/i,
     /draft pull request/i,

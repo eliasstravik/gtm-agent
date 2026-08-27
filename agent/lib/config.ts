@@ -20,6 +20,12 @@ export const WORKSPACE_COMMIT_AUTHOR_CONFIGURATION_ERROR =
   "Workspace commit author configuration is incomplete: set GTM_WORKSPACE_COMMIT_AUTHOR_NAME and GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL together, or unset both.";
 export const WORKFLOW_CONTROL_AUTHOR_ERROR =
   "GTM workflow control requires a commit author mapped to the Vercel project owner.";
+export const SOURCE_CONFIGURATION_ERROR =
+  "Eve source proposal configuration is incomplete: set EVE_SOURCE_GITHUB_CONNECTOR, EVE_SOURCE_REPOSITORY, and EVE_SOURCE_ALLOWED_SLACK_USER_IDS together, or unset all three.";
+export const SOURCE_DEPLOYMENT_ERROR =
+  "Eve source proposals require the exact deployed Git commit from VERCEL_GIT_COMMIT_SHA (or EVE_SOURCE_DEPLOYED_SHA for local testing).";
+export const SOURCE_REPOSITORY_ERROR =
+  "EVE_SOURCE_REPOSITORY must match the Git repository that produced this deployment.";
 
 const REPOSITORY_PATTERN =
   /^(?<owner>[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?)\/(?<repo>[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?)$/;
@@ -74,8 +80,17 @@ export type WorkflowControlConfiguration = {
   readonly runSecret: string;
 };
 
+export type SourceProposalConfiguration = WorkspaceRepository & {
+  readonly allowedSlackUserIds: readonly string[];
+  readonly branch: typeof WORKSPACE_BRANCH;
+  readonly checkoutDirectory: string;
+  readonly connector: string;
+  readonly deployedSha: string;
+};
+
 export type GtmAgentConfiguration = {
   readonly slackConnector: string;
+  readonly source: SourceProposalConfiguration | null;
   readonly workflow: WorkflowHostConfiguration | null;
   readonly workflowControl: WorkflowControlConfiguration | null;
   readonly workspace: ConnectedWorkspaceConfiguration | null;
@@ -106,6 +121,8 @@ export function parseConfiguration(
     throw new Error(SLACK_CONFIGURATION_ERROR);
   }
 
+  const source = parseSourceProposalConfiguration(environment);
+
   if ((connector === undefined) !== (repositoryValue === undefined)) {
     throw new Error(CONFIGURATION_ERROR);
   }
@@ -114,6 +131,7 @@ export function parseConfiguration(
     const workflow = parseWorkflowConfiguration(environment, false);
     return {
       slackConnector,
+      source,
       workflow,
       workflowControl: parseWorkflowControlConfiguration(environment, false, workflow),
       workspace: null,
@@ -129,6 +147,7 @@ export function parseConfiguration(
   }
   return {
     slackConnector,
+    source,
     workflow,
     workflowControl,
     workspace: {
@@ -139,6 +158,67 @@ export function parseConfiguration(
       connector,
       staleMarker: `$HOME/.gtm/.${repository.repo}.stale`,
     },
+  };
+}
+
+function parseSourceProposalConfiguration(
+  environment: Readonly<Record<string, string | undefined>>,
+): SourceProposalConfiguration | null {
+  const connector = present(environment.EVE_SOURCE_GITHUB_CONNECTOR);
+  const repositoryValue = present(environment.EVE_SOURCE_REPOSITORY);
+  const allowedUsersValue = present(environment.EVE_SOURCE_ALLOWED_SLACK_USER_IDS);
+  const configured = [connector, repositoryValue, allowedUsersValue].filter(
+    (value) => value !== undefined,
+  ).length;
+
+  if (configured === 0) return null;
+  if (
+    configured !== 3 ||
+    connector === undefined ||
+    repositoryValue === undefined ||
+    allowedUsersValue === undefined
+  ) {
+    throw new Error(SOURCE_CONFIGURATION_ERROR);
+  }
+
+  const deployedSha =
+    present(environment.EVE_SOURCE_DEPLOYED_SHA) ??
+    present(environment.VERCEL_GIT_COMMIT_SHA);
+  if (deployedSha === undefined || !/^[0-9a-f]{40}$/i.test(deployedSha)) {
+    throw new Error(SOURCE_DEPLOYMENT_ERROR);
+  }
+
+  const repository = parseWorkspaceRepository(repositoryValue);
+  const deployedOwner = present(environment.VERCEL_GIT_REPO_OWNER_SLUG);
+  const deployedRepo = present(environment.VERCEL_GIT_REPO_SLUG);
+  if (
+    deployedOwner !== undefined &&
+    deployedRepo !== undefined &&
+    `${deployedOwner}/${deployedRepo}`.toLowerCase() !==
+      repository.repository.toLowerCase()
+  ) {
+    throw new Error(SOURCE_REPOSITORY_ERROR);
+  }
+
+  const allowedSlackUserIds = [
+    ...new Set(allowedUsersValue.split(",").map((value) => value.trim())),
+  ];
+  if (
+    allowedSlackUserIds.length === 0 ||
+    allowedSlackUserIds.some((value) => !/^U[A-Z0-9]{8,}$/.test(value))
+  ) {
+    throw new Error(
+      "EVE_SOURCE_ALLOWED_SLACK_USER_IDS must be a comma-separated list of exact Slack user IDs.",
+    );
+  }
+
+  return {
+    ...repository,
+    allowedSlackUserIds,
+    branch: WORKSPACE_BRANCH,
+    checkoutDirectory: `$HOME/.eve-source/${repository.repo}`,
+    connector,
+    deployedSha: deployedSha.toLowerCase(),
   };
 }
 

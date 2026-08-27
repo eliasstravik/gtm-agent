@@ -107,7 +107,7 @@ Skills may inspect safe public sources when browsing is available. They do not w
 
 ### Can the agent update itself?
 
-Not directly in production. A sandbox edit does not change the repository or deployment. The planned flow lets the agent prepare an isolated, approval-gated draft pull request. A human reviews and merges it, then Vercel deploys `main`. GTM skills remain owned by `gtm-skills` and are synced into the agent after their source changes. See [agent self-management](docs/agent-self-management.md).
+For a configured owner, yes—but only as a proposal. The dedicated source editor can change instructions or native schedules in an isolated checkout, show the complete diff for acceptance, and open an approval-gated draft pull request. It cannot update `main`, merge, or deploy. Broader code changes still require an external coding session. GTM skills remain owned by `gtm-skills` and are synced into the agent after their source changes. See [agent self-management](docs/agent-self-management.md).
 
 ### What does it cost?
 

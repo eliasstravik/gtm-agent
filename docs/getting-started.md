@@ -56,6 +56,17 @@ Every sandbox session then runs with `GTM_SANDBOX=1`, `GTM_AGENT_BACKEND=api`, a
 
 The sandbox authors, validates, and dry-runs workflows; it never starts a real run. The approved workspace commit to `main` triggers the Git-connected workflow deployment. Eve applies declared migrations before the commit, waits for the exact Git SHA to be live before an approved real run, and can cancel a live run through a separate approval. The sandbox still has no Vercel CLI, deploy credential, or model key.
 
+### Optional — let an owner propose agent instruction and schedule changes
+
+This feature opens draft pull requests; it never updates `main`, merges, or deploys.
+
+1. Create a separate Vercel Connect GitHub connector and install its managed GitHub App only on the repository that contains this agent deployment.
+2. Set `EVE_SOURCE_GITHUB_CONNECTOR` to that connector identifier and `EVE_SOURCE_REPOSITORY` to the exact `owner/repo` connected to the Vercel project.
+3. Set `EVE_SOURCE_ALLOWED_SLACK_USER_IDS` to the comma-separated Slack user IDs allowed to request and approve source proposals.
+4. Confirm the Vercel project exposes Git system environment variables, then redeploy.
+
+An allowed caller can ask Eve to change its instructions or a direct native schedule. Eve shows the complete frozen diff first. After the caller accepts it, native tool approval authorizes creation of a namespaced branch and draft pull request. Every broader source change stays outside this capability.
+
 ## 3. Verify the deployment
 
 Open the production deployment’s `/eve/v1/health` endpoint. It should report healthy before you test Slack.
@@ -101,6 +112,8 @@ Before any write, Eve’s native approval gate shows the summary, complete affec
 - **A production workflow cannot start:** set both `GTM_WORKFLOW_VERCEL_URL` and `GTM_WORKFLOW_RUN_SECRET`, confirm the workflow project is connected to the workspace repository's `main` branch with root `workflows`, and confirm system environment variables and the Trusted Sources rule are enabled.
 - **A workflow model call fails with a missing Gateway key:** set a budgeted `AI_GATEWAY_API_KEY` on the Vercel workflow project, not on the agent; the sandbox never runs a workflow.
 - **A workflow adapter cannot reach its provider:** add the exact hostname to `GTM_WORKFLOW_PROVIDER_HOSTS`; the sandbox denies every other host.
+- **The source editor is unavailable:** set all three `EVE_SOURCE_*` variables, ensure the connector is attached to this Vercel project and installed on the agent repository, expose Git system environment variables, and redeploy.
+- **A source proposal says the repository changed:** the deployed revision no longer equals current `main`. Wait for the newest production deployment, then start a fresh Slack thread.
 
 ## Where to go next
 

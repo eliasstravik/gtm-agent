@@ -4,6 +4,9 @@ import test from "node:test";
 import {
   CONFIGURATION_ERROR,
   SLACK_CONFIGURATION_ERROR,
+  SOURCE_CONFIGURATION_ERROR,
+  SOURCE_DEPLOYMENT_ERROR,
+  SOURCE_REPOSITORY_ERROR,
   WORKFLOW_CONFIGURATION_ERROR,
   WORKFLOW_CONTROL_CONFIGURATION_ERROR,
   parseConfiguration,
@@ -13,6 +16,7 @@ import {
 test("Slack-only mode is valid without GitHub configuration", () => {
   assert.deepEqual(parseConfiguration({ SLACK_CONNECTOR: "slack/gtm-agent" }), {
     slackConnector: "slack/gtm-agent",
+    source: null,
     workflow: null,
     workflowControl: null,
     workspace: null,
@@ -36,6 +40,7 @@ test("connected mode derives immutable repository metadata", () => {
     }),
     {
       slackConnector: "slack/gtm-agent",
+      source: null,
       workflow: null,
       workflowControl: null,
       workspace: {
@@ -49,6 +54,64 @@ test("connected mode derives immutable repository metadata", () => {
         staleMarker: "$HOME/.gtm/.gtm-workspace.stale",
       },
     },
+  );
+});
+
+test("source proposal mode fixes repository, deployed revision, and Slack principals", () => {
+  assert.deepEqual(
+    parseConfiguration({
+      SLACK_CONNECTOR: "slack/gtm-agent",
+      EVE_SOURCE_GITHUB_CONNECTOR: "github/eve-source",
+      EVE_SOURCE_REPOSITORY: "acme-inc/eve-agent",
+      EVE_SOURCE_ALLOWED_SLACK_USER_IDS: "U012345678,U087654321",
+      EVE_SOURCE_DEPLOYED_SHA: "a".repeat(40),
+      VERCEL_GIT_REPO_OWNER_SLUG: "acme-inc",
+      VERCEL_GIT_REPO_SLUG: "eve-agent",
+    }).source,
+    {
+      allowedSlackUserIds: ["U012345678", "U087654321"],
+      branch: "main",
+      checkoutDirectory: "$HOME/.eve-source/eve-agent",
+      connector: "github/eve-source",
+      deployedSha: "a".repeat(40),
+      owner: "acme-inc",
+      repo: "eve-agent",
+      repository: "acme-inc/eve-agent",
+    },
+  );
+});
+
+test("source proposal configuration is all-or-nothing and deployment-bound", () => {
+  assert.throws(
+    () =>
+      parseConfiguration({
+        SLACK_CONNECTOR: "slack/gtm-agent",
+        EVE_SOURCE_REPOSITORY: "acme-inc/eve-agent",
+      }),
+    new RegExp(SOURCE_CONFIGURATION_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+  );
+  assert.throws(
+    () =>
+      parseConfiguration({
+        SLACK_CONNECTOR: "slack/gtm-agent",
+        EVE_SOURCE_GITHUB_CONNECTOR: "github/eve-source",
+        EVE_SOURCE_REPOSITORY: "acme-inc/eve-agent",
+        EVE_SOURCE_ALLOWED_SLACK_USER_IDS: "U012345678",
+      }),
+    new RegExp(SOURCE_DEPLOYMENT_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+  );
+  assert.throws(
+    () =>
+      parseConfiguration({
+        SLACK_CONNECTOR: "slack/gtm-agent",
+        EVE_SOURCE_GITHUB_CONNECTOR: "github/eve-source",
+        EVE_SOURCE_REPOSITORY: "acme-inc/other",
+        EVE_SOURCE_ALLOWED_SLACK_USER_IDS: "U012345678",
+        EVE_SOURCE_DEPLOYED_SHA: "a".repeat(40),
+        VERCEL_GIT_REPO_OWNER_SLUG: "acme-inc",
+        VERCEL_GIT_REPO_SLUG: "eve-agent",
+      }),
+    new RegExp(SOURCE_REPOSITORY_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
   );
 });
 
