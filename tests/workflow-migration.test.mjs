@@ -72,11 +72,12 @@ test("accepted SQL is staged, installed on the baseline, and migrated only insid
 
   assert.equal(applied, true);
   const runs = events.filter(([kind]) => kind === "run").map(([, command]) => command);
-  assert.equal(runs.length, 3);
+  assert.equal(runs.length, 4);
   assert.match(runs[0], /git.*archive/);
   assert.match(runs[1], /npm ci/);
   assert.doesNotMatch(runs[1], /db:migrate/);
   assert.match(runs[2], /npm run db:migrate/);
+  assert.match(runs[3], /verify-migrations/);
   const order = events.map(([kind, value]) =>
     kind === "policy" ? `policy:${value === writePolicy ? "write" : "baseline"}` : kind === "run" && /db:migrate/.test(value) ? "migrate" : kind,
   );
@@ -113,6 +114,37 @@ test("the write window closes even when the migration fails, and the failure say
   assert.deepEqual(policies, [writePolicy, baselinePolicy]);
 });
 
+test("a successful migration command is rejected when the declared hash is absent from the ledger", async () => {
+  const { events, sandbox } = fakeSandbox((command) =>
+    /verify-migrations/.test(command)
+      ? { exitCode: 1, stdout: "", stderr: "Declared migration hashes are missing from the ledger." }
+      : { exitCode: 0, stdout: "", stderr: "" },
+  );
+
+  await assert.rejects(
+    applyAcceptedWorkflowMigrations({
+      baselinePolicy,
+      mutation: mutation([
+        { path: "workflows/drizzle/0002_accounts.sql", content: "alter table accounts add score integer;\n" },
+      ]),
+      sandbox,
+      workspace,
+      writePolicy,
+    }),
+    (error) => {
+      assert.ok(error instanceof WorkflowMigrationError);
+      assert.match(error.message, /ledger verification failed/i);
+      assert.match(error.message, /No Git commit was attempted/);
+      return true;
+    },
+  );
+
+  const runs = events.filter(([kind]) => kind === "run").map(([, command]) => command);
+  assert.ok(runs.some((command) => /verify-migrations/.test(command)));
+  const policies = events.filter(([kind]) => kind === "policy").map(([, value]) => value);
+  assert.deepEqual(policies, [writePolicy, baselinePolicy]);
+});
+
 test("a baseline restore failure after migration is terminal and never looks like success", async () => {
   let restores = 0;
   const { sandbox } = fakeSandbox();
@@ -135,7 +167,7 @@ test("a baseline restore failure after migration is terminal and never looks lik
     (error) => {
       assert.ok(error instanceof WorkflowMigrationError);
       assert.match(error.message, /egress could not be restored/i);
-      assert.match(error.message, /already applied/i);
+      assert.match(error.message, /migration command completed/i);
       return true;
     },
   );

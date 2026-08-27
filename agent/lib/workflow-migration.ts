@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { SandboxNetworkPolicy, SandboxSession } from "eve/sandbox";
 
 import type { ConnectedWorkspaceConfiguration } from "./config.ts";
@@ -21,8 +23,9 @@ export class WorkflowMigrationError extends Error {
 /**
  * Applies the accepted `workflows/drizzle/*.sql` additions to the workspace
  * database. Dependencies install on the session baseline; the write token is
- * brokered only around `db:migrate` and withdrawn before returning. Resolves
- * `true` when migrations ran, `false` when the mutation carries none.
+ * brokered only around `db:migrate` and ledger verification, then withdrawn
+ * before returning. Resolves `true` only when every accepted SQL hash is in
+ * the ledger, or `false` when the mutation carries no migration.
  */
 export async function applyAcceptedWorkflowMigrations({
   baselinePolicy,
@@ -40,10 +43,14 @@ export async function applyAcceptedWorkflowMigrations({
   readonly workspace: ConnectedWorkspaceConfiguration;
   readonly writePolicy: SandboxNetworkPolicy;
 }): Promise<boolean> {
-  const migrations = mutation.additions
-    .map((entry) => entry.path)
-    .filter((path) => MIGRATION_PATTERN.test(path));
+  const migrationEntries = mutation.additions.filter((entry) =>
+    MIGRATION_PATTERN.test(entry.path),
+  );
+  const migrations = migrationEntries.map((entry) => entry.path);
   if (migrations.length === 0) return false;
+  const migrationHashes = migrationEntries.map((entry) =>
+    createHash("sha256").update(entry.content).digest("hex"),
+  );
 
   const stageRoot = `/workspace/.gtm-migration-${mutation.expectedHead}`;
   const stageWorkflow = `${stageRoot}/workflows`;
@@ -83,9 +90,13 @@ cd "${stageWorkflow}"
 npm ci --include=dev --ignore-scripts --no-audit --no-fund`,
       "Workflow migration dependency installation",
     );
+    await sandbox.writeTextFile({
+      path: `${stageWorkflow}/.gtm-verify-migrations.mjs`,
+      content: ledgerVerificationScript(migrationHashes),
+    });
 
     await sandbox.setNetworkPolicy(writePolicy);
-    let migrated = false;
+    let migrationCommandCompleted = false;
     try {
       await run(
         sandbox,
@@ -94,7 +105,23 @@ cd "${stageWorkflow}"
 npm run db:migrate`,
         "Accepted workflow migration",
       );
-      migrated = true;
+      migrationCommandCompleted = true;
+      try {
+        await run(
+          sandbox,
+          `set -euo pipefail
+cd "${stageWorkflow}"
+node .gtm-verify-migrations.mjs`,
+          "Workflow migration ledger verification",
+        );
+      } catch (error) {
+        if (error instanceof WorkflowMigrationError) {
+          throw new WorkflowMigrationError(
+            "Workflow migration ledger verification failed after db:migrate completed; the database may have changed. No Git commit was attempted and the checkout is unchanged.",
+          );
+        }
+        throw error;
+      }
     } finally {
       try {
         await closeSandboxEgress(sandbox, baselinePolicy);
@@ -102,8 +129,8 @@ npm run db:migrate`,
         if (error instanceof EgressNotClosedError) {
           throw new WorkflowMigrationError(
             `Sandbox egress could not be restored after the migration step${
-              migrated
-                ? `; ${describe(migrations)} already applied to the workspace database`
+              migrationCommandCompleted
+                ? `; the migration command completed for ${describe(migrations)}, so the database state must be inspected`
                 : ""
             }. No Git commit was attempted. End this session immediately and inspect the workspace database before any retry.`,
           );
@@ -115,6 +142,24 @@ npm run db:migrate`,
     await sandbox.removePath({ path: stageRoot, force: true, recursive: true });
   }
   return true;
+}
+
+function ledgerVerificationScript(hashes: readonly string[]): string {
+  return `import { createClient } from "@libsql/client";
+
+const expected = new Set(${JSON.stringify(hashes)});
+const client = createClient({ url: process.env.TURSO_DATABASE_URL });
+try {
+  const result = await client.execute("SELECT hash FROM __drizzle_migrations");
+  for (const row of result.rows) expected.delete(String(row.hash));
+  if (expected.size > 0) {
+    process.stderr.write("Declared migration hashes are missing from the ledger.\\n");
+    process.exitCode = 1;
+  }
+} finally {
+  client.close();
+}
+`;
 }
 
 function describe(migrations: readonly string[]): string {

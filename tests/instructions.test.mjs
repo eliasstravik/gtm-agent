@@ -59,7 +59,7 @@ test("standing instructions declare the sandbox workflow runtime and its limits"
     /no Vercel CLI|Vercel CLI is not/i,
     /operate_gtm_workflow/,
     /commit.*`main`.*starts production deployment/i,
-    /applies any accepted workflow migrations before/i,
+    /applies accepted workflow migrations.*verifies their ledger hashes before/i,
     /exact commit SHA/i,
     /read-only run preview/i,
     /hook token/i,

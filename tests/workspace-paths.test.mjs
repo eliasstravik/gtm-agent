@@ -327,9 +327,22 @@ const SQL_BASE = {
   summary: "Add a score column",
   expectedHead: "f".repeat(40),
   message: "Add score column",
-  manifest: [{ path: "workflows/drizzle/0002_score.sql", operation: "write" }],
+  manifest: [
+    { path: "workflows/drizzle/0002_score.sql", operation: "write" },
+    { path: "workflows/drizzle/meta/0002_snapshot.json", operation: "write" },
+    { path: "workflows/drizzle/meta/_journal.json", operation: "write" },
+  ],
   additions: [
     { path: "workflows/drizzle/0002_score.sql", content: "ALTER TABLE accounts ADD `score` integer;" },
+    { path: "workflows/drizzle/meta/0002_snapshot.json", content: "{}\n" },
+    {
+      path: "workflows/drizzle/meta/_journal.json",
+      content: JSON.stringify({
+        version: "7",
+        dialect: "sqlite",
+        entries: [{ idx: 2, version: "6", when: 1, tag: "0002_score", breakpoints: true }],
+      }),
+    },
   ],
   deletions: [],
   migrations: ["workflows/drizzle/0002_score.sql"],
@@ -360,6 +373,15 @@ test("declared migrations must list exactly the SQL additions", () => {
   );
 });
 
+test("migration SQL must include the matching Drizzle journal entry and snapshot", () => {
+  const orphan = {
+    ...SQL_BASE,
+    manifest: [SQL_BASE.manifest[0]],
+    additions: [SQL_BASE.additions[0]],
+  };
+  assert.throws(() => validateWorkspaceMutation(orphan), /journal|snapshot/i);
+});
+
 test("destructive SQL must be declared and an idle declaration is refused", () => {
   for (const content of [
     "DROP TABLE `accounts`;",
@@ -369,7 +391,10 @@ test("destructive SQL must be declared and an idle declaration is refused", () =
   ]) {
     const undeclared = {
       ...SQL_BASE,
-      additions: [{ path: "workflows/drizzle/0002_score.sql", content }],
+      additions: [
+        { path: "workflows/drizzle/0002_score.sql", content },
+        ...SQL_BASE.additions.slice(1),
+      ],
     };
     assert.throws(() => validateWorkspaceMutation(undeclared), /destructive/i, content);
     const declared = { ...undeclared, destructive: true };

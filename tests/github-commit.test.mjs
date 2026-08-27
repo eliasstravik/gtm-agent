@@ -21,11 +21,24 @@ const input = {
 
 const migrating = {
   summary: "Add a score column",
-  manifest: [{ path: "workflows/drizzle/0002_score.sql", operation: "write" }],
+  manifest: [
+    { path: "workflows/drizzle/0002_score.sql", operation: "write" },
+    { path: "workflows/drizzle/meta/0002_snapshot.json", operation: "write" },
+    { path: "workflows/drizzle/meta/_journal.json", operation: "write" },
+  ],
   expectedHead: "a".repeat(40),
   message: "Add score column",
   additions: [
     { path: "workflows/drizzle/0002_score.sql", content: "ALTER TABLE accounts ADD `score` integer;" },
+    { path: "workflows/drizzle/meta/0002_snapshot.json", content: "{}\n" },
+    {
+      path: "workflows/drizzle/meta/_journal.json",
+      content: JSON.stringify({
+        version: "7",
+        dialect: "sqlite",
+        entries: [{ idx: 2, version: "6", when: 1, tag: "0002_score", breakpoints: true }],
+      }),
+    },
   ],
   deletions: [],
   migrations: ["workflows/drizzle/0002_score.sql"],

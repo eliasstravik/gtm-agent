@@ -219,6 +219,10 @@ function validateDeclaredMigrations(input: WorkspaceMutation): void {
     );
   }
 
+  if (sqlAdditions.length > 0) {
+    validateDrizzleMigrationArtifacts(input, sqlAdditions);
+  }
+
   const destructive = sqlAdditions
     .filter((entry) => DESTRUCTIVE_SQL_PATTERN.test(stripSqlComments(entry.content)))
     .map((entry) => entry.path);
@@ -231,6 +235,68 @@ function validateDeclaredMigrations(input: WorkspaceMutation): void {
     throw new Error(
       "The change was declared destructive but no declared migration drops, truncates, or deletes; set destructive: false.",
     );
+  }
+}
+
+function validateDrizzleMigrationArtifacts(
+  input: WorkspaceMutation,
+  sqlAdditions: readonly WorkspaceAddition[],
+): void {
+  const additions = new Map(input.additions.map((entry) => [entry.path, entry.content]));
+  const journalPath = "workflows/drizzle/meta/_journal.json";
+  const journalContent = additions.get(journalPath);
+  if (journalContent === undefined) {
+    throw new Error(
+      `Migration SQL must include the generated Drizzle journal update at ${journalPath}. Run db:generate and save the SQL, journal, and snapshot together.`,
+    );
+  }
+
+  let journal: unknown;
+  try {
+    journal = JSON.parse(journalContent);
+  } catch {
+    throw new Error(`Drizzle migration journal is not valid JSON: ${journalPath}.`);
+  }
+  const entries =
+    journal !== null && typeof journal === "object" && "entries" in journal
+      ? (journal as { readonly entries?: unknown }).entries
+      : undefined;
+  if (!Array.isArray(entries)) {
+    throw new Error(`Drizzle migration journal must contain an entries array: ${journalPath}.`);
+  }
+  const journalTags = new Set(
+    entries.flatMap((entry) =>
+      entry !== null && typeof entry === "object" && "tag" in entry && typeof entry.tag === "string"
+        ? [entry.tag]
+        : [],
+    ),
+  );
+
+  for (const migration of sqlAdditions) {
+    const fileName = migration.path.slice(migration.path.lastIndexOf("/") + 1, -4);
+    const sequence = /^(\d{4})_.+/.exec(fileName)?.[1];
+    if (sequence === undefined) {
+      throw new Error(
+        `Drizzle migration filename must begin with a four-digit sequence: ${migration.path}.`,
+      );
+    }
+    if (!journalTags.has(fileName)) {
+      throw new Error(
+        `Drizzle migration journal is missing the entry for ${fileName}. Run db:generate instead of adding migration SQL by hand.`,
+      );
+    }
+    const snapshotPath = `workflows/drizzle/meta/${sequence}_snapshot.json`;
+    const snapshotContent = additions.get(snapshotPath);
+    if (snapshotContent === undefined) {
+      throw new Error(
+        `Migration ${migration.path} must include its generated Drizzle snapshot at ${snapshotPath}.`,
+      );
+    }
+    try {
+      JSON.parse(snapshotContent);
+    } catch {
+      throw new Error(`Drizzle migration snapshot is not valid JSON: ${snapshotPath}.`);
+    }
   }
 }
 
