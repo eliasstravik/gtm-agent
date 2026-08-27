@@ -27,6 +27,10 @@ export type WorkflowRunPreview = {
   readonly head: string;
   readonly status: "ready";
   readonly dryRun: unknown;
+  /** Rows the dry run counted; start must carry this exact number. */
+  readonly rows: number;
+  /** Projected spend the dry run reported; start must carry this exact value. */
+  readonly projectedCostUsd: number;
 };
 
 export type SanitizedWorkflowRun = {
@@ -103,28 +107,49 @@ export class WorkflowControl {
       abortSignal: AbortSignal.timeout(COMMAND_TIMEOUT_MS),
     });
     const dryRun = lastJson(result.stdout);
-    if (
-      dryRun === null ||
-      typeof dryRun !== "object" ||
-      !("withinCaps" in dryRun) ||
-      dryRun.withinCaps !== true
-    ) {
-      throw new Error("The workflow dry run failed or exceeded its accepted caps.");
+    if (dryRun === null) {
+      const failure = lastJson(result.stderr);
+      const code = nestedString(failure, "error", "code");
+      const message = nestedString(failure, "error", "message");
+      throw new Error(
+        code === null
+          ? "The workflow dry run failed before any real run was started."
+          : `The workflow dry run failed with ${code}: ${message ?? "no message"}. No run was started.`,
+      );
+    }
+    if (dryRun.withinCaps !== true) {
+      throw new Error("The workflow dry run exceeded its accepted caps. No run was started.");
     }
     if (result.exitCode !== 0) {
       throw new Error("The workflow dry run failed before any real run was started.");
     }
-    return { dryRun, head: input.expectedHead, status: "ready" };
+    const rows = directNumber(dryRun, "rows");
+    const projectedCostUsd = directNumber(dryRun, "projectedCostUsd");
+    if (rows === null || projectedCostUsd === null) {
+      throw new Error("The workflow dry run did not report rows and projected cost.");
+    }
+    return { dryRun, head: input.expectedHead, projectedCostUsd, rows, status: "ready" };
   }
 
   async startRun(input: {
     readonly checkpoint: number | null;
     readonly expectedHead: string;
+    readonly expectedProjectedCostUsd: number;
+    readonly expectedRows: number;
     readonly inputPath: string;
     readonly workflowPath: string;
     readonly sandbox: Sandbox;
   }): Promise<{ readonly runKey: string; readonly status: "started" | "run_in_progress" }> {
-    await this.previewRun(input);
+    validateAcceptedScope(input);
+    const preview = await this.previewRun(input);
+    if (
+      preview.rows !== input.expectedRows ||
+      Math.abs(preview.projectedCostUsd - input.expectedProjectedCostUsd) >= 0.005
+    ) {
+      throw new Error(
+        `The fresh dry run reports ${preview.rows} rows and $${preview.projectedCostUsd.toFixed(2)}, not the accepted ${input.expectedRows} rows and $${input.expectedProjectedCostUsd.toFixed(2)}. Show the new preview and ask again. No run was started.`,
+      );
+    }
     await this.#waitForProductionHead(input.expectedHead);
     const body = await readWorkflowInput(
       input.sandbox,
@@ -165,6 +190,28 @@ export class WorkflowControl {
   async getRun(runKey: string): Promise<SanitizedWorkflowRun> {
     validateRunKey(runKey);
     const response = await this.#workflowRequest(`/api/runs/${runKey}`, {}, [200]);
+    return sanitizeRun(response.body);
+  }
+
+  async cancelRun(input: {
+    readonly reason: string | null;
+    readonly runKey: string;
+  }): Promise<SanitizedWorkflowRun> {
+    validateRunKey(input.runKey);
+    const response = await this.#workflowRequest(
+      `/api/runs/${input.runKey}/cancel`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: input.reason }),
+      },
+      [200, 409],
+    );
+    if (response.status === 409) {
+      if (nestedString(response.body, "error", "code") !== "run_not_active") {
+        throw new Error("The workflow reported a conflict while cancelling the run.");
+      }
+      return this.getRun(input.runKey);
+    }
     return sanitizeRun(response.body);
   }
 
@@ -336,6 +383,18 @@ function validateRunInput(input: {
     (!Number.isSafeInteger(input.checkpoint) || input.checkpoint < 1)
   ) {
     throw new Error("The checkpoint must be a positive integer or null.");
+  }
+}
+
+function validateAcceptedScope(input: {
+  readonly expectedProjectedCostUsd: number;
+  readonly expectedRows: number;
+}): void {
+  if (!Number.isSafeInteger(input.expectedRows) || input.expectedRows < 0) {
+    throw new Error("The accepted row count must be a non-negative integer.");
+  }
+  if (!Number.isFinite(input.expectedProjectedCostUsd) || input.expectedProjectedCostUsd < 0) {
+    throw new Error("The accepted projected cost must be a non-negative number.");
   }
 }
 

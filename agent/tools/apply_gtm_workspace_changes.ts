@@ -9,6 +9,7 @@ import {
   MAX_FILE_BYTES,
   MAX_PATHS,
   MAX_TOTAL_BYTES,
+  MIGRATION_PATH_PATTERN,
   validateWorkspaceMutation,
 } from "../lib/workspace-paths.ts";
 import {
@@ -18,13 +19,19 @@ import {
   markWorkspaceCheckoutStale,
   refreshWorkspaceCheckout,
 } from "../lib/workspace-checkout.ts";
-import { createSessionNetworkPolicy } from "../lib/workflow-session.ts";
+import {
+  createSessionNetworkPolicy,
+  createWorkflowWritePolicy,
+} from "../lib/workflow-session.ts";
 import {
   WorkspaceConflictError,
   createCommitOnMain,
   runApprovedWorkspaceMutation,
 } from "../lib/github-commit.ts";
-import { applyAcceptedWorkflowMigrations } from "../lib/workflow-migration.ts";
+import {
+  WorkflowMigrationError,
+  applyAcceptedWorkflowMigrations,
+} from "../lib/workflow-migration.ts";
 
 const pathSchema = z
   .string()
@@ -37,8 +44,10 @@ const inputSchema = z
     summary: z
       .string()
       .min(1)
-      .max(240)
-      .describe("Concise human-readable summary shown in the approval request."),
+      .max(500)
+      .describe(
+        "Concise human-readable summary shown in the approval request. For a Vercel workflow batch it must say that acceptance commits to main and starts production deployment, and name any destructive migration.",
+      ),
     manifest: z
       .array(
         z
@@ -78,6 +87,17 @@ const inputSchema = z
     deletions: z
       .array(z.object({ path: pathSchema }).strict())
       .max(MAX_PATHS),
+    migrations: z
+      .array(pathSchema.regex(MIGRATION_PATH_PATTERN))
+      .max(MAX_PATHS)
+      .describe(
+        "Every workflows/drizzle/*.sql file in this change, exactly; empty when none. They apply to the workspace database before the commit.",
+      ),
+    destructive: z
+      .boolean()
+      .describe(
+        "True only when a listed migration drops a table, column, or index, truncates, or deletes rows. The tool refuses undeclared destructive SQL and an idle declaration.",
+      ),
   })
   .strict()
   .refine(
@@ -91,7 +111,7 @@ const inputSchema = z
 
 export default defineTool({
   description:
-    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Accepted workflow migrations apply before the commit; Vercel workflow changes then deploy through the repository's Git connection. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state.",
+    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Declared workflow migrations apply to the workspace database inside a short write window before the commit; Vercel workflow changes then deploy through the repository's Git connection. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state.",
   inputSchema,
   approval: always(),
   async execute(input, ctx) {
@@ -153,7 +173,15 @@ export default defineTool({
           return response.data.object.sha;
         },
         beforeCommit: (mutation) =>
-          applyAcceptedWorkflowMigrations({ mutation, sandbox, workspace }),
+          configuration.workflow === null
+            ? Promise.resolve(false)
+            : applyAcceptedWorkflowMigrations({
+                baselinePolicy,
+                mutation,
+                sandbox,
+                workspace,
+                writePolicy: createWorkflowWritePolicy(configuration.workflow),
+              }),
         createCommit: (mutation) =>
           createCommitOnMain(octokit, {
             owner: workspace.owner,
@@ -176,6 +204,10 @@ export default defineTool({
       });
     } catch (error) {
       if (error instanceof WorkspaceConflictError) throw error;
+      if (error instanceof WorkflowMigrationError) throw error;
+      if (error instanceof Error && /already applied to the workspace database/.test(error.message)) {
+        throw error;
+      }
       if (error instanceof EgressNotClosedError) {
         throw new Error(
           "GitHub saved the complete change, but sandbox egress could not be closed. End this session immediately and inspect the configured repository before any retry.",

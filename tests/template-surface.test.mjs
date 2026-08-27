@@ -40,7 +40,7 @@ test("sandbox is Vercel-backed, deny-all by default, and repository-optional", a
   assert.match(sandbox, /metadata:read/);
   assert.doesNotMatch(sandbox, /contents:write/);
   assert.doesNotMatch(sandbox, /ports:/);
-  assert.doesNotMatch(sandbox, /databaseAuthToken|gatewayApiKey/);
+  assert.doesNotMatch(sandbox, /databaseAuthToken|databaseReadOnlyAuthToken|gatewayApiKey/);
   assert.match(sandbox, /authorizationDetails/);
   assert.match(sandbox, /hydrateWorkspaceCheckout/);
 });
@@ -54,7 +54,9 @@ test("the sole authored write tool is approval-gated and repository-bound", asyn
 
   const tool = await read("agent/tools/apply_gtm_workspace_changes.ts");
   assert.match(tool, /approval:\s*always\(\)/);
-  assert.match(tool, /summary[\s\S]+manifest[\s\S]+expectedHead[\s\S]+message[\s\S]+additions[\s\S]+deletions/);
+  assert.match(tool, /summary[\s\S]+manifest[\s\S]+expectedHead[\s\S]+message[\s\S]+additions[\s\S]+deletions[\s\S]+migrations[\s\S]+destructive/);
+  assert.match(tool, /createWorkflowWritePolicy/);
+  assert.match(tool, /WorkflowMigrationError/);
   assert.match(tool, /contents:read/);
   assert.match(tool, /contents:write/);
   assert.match(tool, /metadata:read/);
@@ -78,8 +80,11 @@ test("trusted workflow controls keep production authority out of model input and
   const control = await read("agent/lib/workflow-control.ts");
   const migration = await read("agent/lib/workflow-migration.ts");
 
-  assert.match(operation, /preview[\s\S]+start[\s\S]+status[\s\S]+approve/);
+  assert.match(operation, /preview[\s\S]+start[\s\S]+status[\s\S]+approve[\s\S]+cancel/);
+  assert.match(operation, /expectedRows[\s\S]+expectedProjectedCostUsd/);
+  assert.match(operation, /action === "cancel"/);
   assert.match(operation, /user-approval/);
+  assert.match(control, /\/cancel/);
   assert.match(control, /x-vercel-trusted-oidc-idp-token/);
   assert.match(control, /x-gtm-workspace-head/);
   assert.match(control, /\/api\/deployment/);
@@ -162,6 +167,8 @@ test("an invalid connected mutation is rejected before sandbox or token access",
           message: "Unsafe write",
           additions: [{ path: "../ORG.md", content: "unsafe\n" }],
           deletions: [],
+          migrations: [],
+          destructive: false,
         },
         {
           async getSandbox() {
@@ -201,6 +208,8 @@ test("the tool returns setup guidance before opening a sandbox in Slack-only mod
         message: "Update organization",
         additions: [{ path: "ORG.md", content: "# Organization\n" }],
         deletions: [],
+        migrations: [],
+        destructive: false,
       },
       {
         async getSandbox() {

@@ -16,7 +16,7 @@
 
 ## Make Slack the front door to your GTM operating system
 
-A teammate asks for the outcome in a channel or DM. GTM Agent selects the workspace, ICP, persona, or workflow skill, reads the connected organization workspace when required, and returns a proposal where the rest of the team can review it. With a Turso database configured, it can also build, dry-run, and run saved GTM workflows from the sandbox against the workspace's own data.
+A teammate asks for the outcome in a channel or DM. GTM Agent selects the workspace, ICP, persona, or workflow skill, reads the connected organization workspace when required, and returns a proposal where the rest of the team can review it. With a Turso database configured, it can also build and dry-run saved GTM workflows in the sandbox and run them on Vercel against the workspace's own data.
 
 > [!IMPORTANT]
 > **Breaking deployment change:** upgrading deployments must rename `GTM_CONTEXT_REPOSITORY` to `GTM_WORKSPACE_REPOSITORY` before redeploying. The former variable is no longer recognized.
@@ -32,7 +32,7 @@ A teammate asks for the outcome in a channel or DM. GTM Agent selects the worksp
 | **Uses native approval for workspace writes** | ✅ | ❌ | ❌ | ❌ |
 | **Commits an approved change atomically on main** | ✅ | ❌ | ❌ | ❌ |
 | **Stops a write when the repository HEAD changes** | ✅ | ❌ | ❌ | ❌ |
-| **Runs saved workflows against your own Turso database** | ✅ | ❌ | ❌ | ❌ |
+| **Runs saved workflows on Vercel against your own Turso database** | ✅ | ❌ | ❌ | ❌ |
 | **Brokers every workflow token at the sandbox firewall** | ✅ | ❌ | ❌ | ❌ |
 | **Adds no agent-owned database, web UI, or alternate memory** | ✅ | ❌ | ❌ | ❌ |
 
@@ -46,7 +46,7 @@ Ask for workspace, ICP, persona, or workflow lifecycle work in Slack without sen
 
 ### ⚙️ Build and run reusable GTM workflows
 
-Create, update, inspect, delete, or run a saved workflow. Each workflow declares a typed result table, commits its migrations, and upserts rows by a stable key. Workflows can run inside the sandbox or on a Git-connected Vercel workflow project, always with a zero-spend dry run and a checkpoint before real spend.
+Create, update, inspect, delete, or run a saved workflow. Each workflow declares a typed result table, commits its migrations, and upserts rows by a stable key. The sandbox authors and dry-runs; real runs happen on a Git-connected Vercel workflow project, always with a zero-spend dry run, a checkpoint before real spend, and an approval-gated cancel.
 
 ### ⚡ Use one agent for four focused jobs
 
@@ -99,7 +99,7 @@ It validates the complete path manifest and expected HEAD, asks for native appro
 
 ### Can the agent run GTM workflows?
 
-Yes, when the deployment sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` for the workspace's own Turso database. The sandbox drafts the workflow project in scratch space and submits accepted tracked files for approval. Local workflows run in the sandbox; Vercel workflows deploy when that approved atomic commit reaches workspace `main`. The commit uses a configured, verified Git author recognized by Vercel while the repository-bound GitHub App remains the committer. Eve waits for the exact Git SHA before starting production. The Turso token and optional budgeted Gateway key are injected at the sandbox firewall, so no workflow credential enters the sandbox.
+Yes, when the deployment sets `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `TURSO_READ_ONLY_AUTH_TOKEN` for the workspace's own Turso database. The sandbox drafts the workflow project in scratch space, validates and dry-runs it, and submits accepted tracked files for approval; it never starts a real run and can only read the database. Vercel workflows deploy when that approved atomic commit reaches workspace `main`, with declared migrations applied through a write credential that exists only for that step. The commit uses a configured, verified Git author recognized by Vercel while the repository-bound GitHub App remains the committer. Eve waits for the exact Git SHA before starting production, refuses a start whose fresh dry run differs from the accepted rows and cost, and can cancel a live run through a separate approval. No workflow credential enters the sandbox.
 
 ### Can the agent browse the web or update our CRM?
 

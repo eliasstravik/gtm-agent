@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 
-export const MAX_PATHS = 50;
+/** Enough for a suborganization move: fifty artifacts as delete plus write. */
+export const MAX_PATHS = 100;
 /** A workflow scaffold ships a lockfile above 300 KiB; keep headroom for it. */
 export const MAX_FILE_BYTES = 1024 * 1024;
 export const MAX_TOTAL_BYTES = 4 * 1024 * 1024;
@@ -36,6 +37,13 @@ const PROTECTED_ROOT_DELETIONS = new Set([
   ...ROOT_ONLY_CONTRACT_FILES,
   "ORG.md",
 ]);
+export const MIGRATION_PATH_PATTERN = /^workflows\/drizzle\/[^/]+\.sql$/;
+/**
+ * Statements that destroy schema or rows. Comments are stripped first so a
+ * remark cannot hide or fake a destructive statement.
+ */
+const DESTRUCTIVE_SQL_PATTERN =
+  /\b(?:drop\s+(?:table|column|index|view|trigger)|alter\s+table\b[^;]*\bdrop\b|truncate\s+table|delete\s+from)\b/i;
 
 export type WorkspaceManifestEntry = {
   readonly path: string;
@@ -58,6 +66,10 @@ export type WorkspaceMutation = {
   readonly message: string;
   readonly additions: readonly WorkspaceAddition[];
   readonly deletions: readonly WorkspaceDeletion[];
+  /** Every `workflows/drizzle/*.sql` addition, declared so approval sees it. */
+  readonly migrations: readonly string[];
+  /** True only when a declared migration drops schema or deletes rows. */
+  readonly destructive: boolean;
 };
 
 export function validateWorkspacePath(
@@ -89,8 +101,8 @@ export function validateWorkspacePath(
 }
 
 export function validateWorkspaceMutation<T extends WorkspaceMutation>(input: T): T {
-  if (input.summary.trim().length === 0 || input.summary.length > 240) {
-    throw new Error("Mutation summary must contain 1–240 characters.");
+  if (input.summary.trim().length === 0 || input.summary.length > 500) {
+    throw new Error("Mutation summary must contain 1–500 characters.");
   }
   if (input.message.trim().length === 0 || input.message.length > 120) {
     throw new Error("Commit message must contain 1–120 characters.");
@@ -179,7 +191,51 @@ export function validateWorkspaceMutation<T extends WorkspaceMutation>(input: T)
     }
   }
 
+  validateDeclaredMigrations(input);
+
   return input;
+}
+
+function validateDeclaredMigrations(input: WorkspaceMutation): void {
+  const declared = new Set<string>();
+  for (const path of input.migrations) {
+    if (declared.has(path)) {
+      throw new Error(`Declared migrations contain a duplicate path: ${path}.`);
+    }
+    declared.add(path);
+  }
+  const sqlAdditions = input.additions.filter((entry) =>
+    MIGRATION_PATH_PATTERN.test(entry.path),
+  );
+  const actual = new Set(sqlAdditions.map((entry) => entry.path));
+  if (
+    declared.size !== actual.size ||
+    [...declared].some((path) => !actual.has(path))
+  ) {
+    throw new Error(
+      `Declared migrations must list exactly the workflows/drizzle/*.sql files in this change: ${
+        actual.size === 0 ? "none" : [...actual].sort().join(", ")
+      }.`,
+    );
+  }
+
+  const destructive = sqlAdditions
+    .filter((entry) => DESTRUCTIVE_SQL_PATTERN.test(stripSqlComments(entry.content)))
+    .map((entry) => entry.path);
+  if (destructive.length > 0 && input.destructive !== true) {
+    throw new Error(
+      `Migration ${destructive.join(", ")} contains a destructive statement (drop, truncate, or delete). Declare destructive: true and say so in the summary, or remove the statement.`,
+    );
+  }
+  if (destructive.length === 0 && input.destructive === true) {
+    throw new Error(
+      "The change was declared destructive but no declared migration drops, truncates, or deletes; set destructive: false.",
+    );
+  }
+}
+
+function stripSqlComments(sql: string): string {
+  return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
 }
 
 /**

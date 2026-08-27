@@ -120,6 +120,8 @@ test("workflow hosting derives brokered Turso, Gateway, and provider metadata", 
       ...CONNECTED,
       TURSO_DATABASE_URL: "libsql://acme-gtm-workspace-acme.turso.io",
       TURSO_AUTH_TOKEN: "turso-secret",
+    TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
+      TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
       GTM_WORKFLOW_GATEWAY_API_KEY: "gateway-secret",
       GTM_WORKFLOW_PROVIDER_HOSTS: " api.example-data.com,enrich.example.net ",
     }).workflow,
@@ -127,9 +129,31 @@ test("workflow hosting derives brokered Turso, Gateway, and provider metadata", 
       databaseHost: "acme-gtm-workspace-acme.turso.io",
       databaseUrl: "https://acme-gtm-workspace-acme.turso.io",
       databaseAuthToken: "turso-secret",
-      gatewayApiKey: "gateway-secret",
+      databaseReadOnlyAuthToken: "turso-read-only",
       providerHosts: ["api.example-data.com", "enrich.example.net"],
     },
+  );
+});
+
+test("the read-only Turso token is required and must differ from the write token", () => {
+  assert.throws(
+    () =>
+      parseConfiguration({
+        ...CONNECTED,
+        TURSO_DATABASE_URL: "libsql://acme.turso.io",
+        TURSO_AUTH_TOKEN: "turso-secret",
+      }),
+    /TURSO_READ_ONLY_AUTH_TOKEN/,
+  );
+  assert.throws(
+    () =>
+      parseConfiguration({
+        ...CONNECTED,
+        TURSO_DATABASE_URL: "libsql://acme.turso.io",
+        TURSO_AUTH_TOKEN: "same-token",
+        TURSO_READ_ONLY_AUTH_TOKEN: "same-token",
+      }),
+    /must differ/i,
   );
 });
 
@@ -147,6 +171,7 @@ test("workflow control fixes the production authority in host configuration", ()
     ...CONNECTED,
     TURSO_DATABASE_URL: "libsql://acme.turso.io",
     TURSO_AUTH_TOKEN: "turso-secret",
+    TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
     ...COMMIT_AUTHOR,
     ...CONTROL,
   });
@@ -163,6 +188,8 @@ test("workflow control is all-or-nothing and requires the hosted connected works
         ...CONNECTED,
         TURSO_DATABASE_URL: "libsql://acme.turso.io",
         TURSO_AUTH_TOKEN: "turso-secret",
+    TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
+        TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
         GTM_WORKFLOW_VERCEL_URL: "https://acme-workflows.vercel.app",
       }),
     new RegExp(
@@ -175,6 +202,8 @@ test("workflow control is all-or-nothing and requires the hosted connected works
         SLACK_CONNECTOR: "slack/gtm-agent",
         TURSO_DATABASE_URL: "libsql://acme.turso.io",
         TURSO_AUTH_TOKEN: "turso-secret",
+    TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
+        TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
         ...COMMIT_AUTHOR,
         ...CONTROL,
       }),
@@ -193,6 +222,8 @@ test("workflow control requires an attributed Git commit author", () => {
         ...CONNECTED,
         TURSO_DATABASE_URL: "libsql://acme.turso.io",
         TURSO_AUTH_TOKEN: "turso-secret",
+    TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
+        TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
         ...CONTROL,
       }),
     /commit author/i,
@@ -231,6 +262,7 @@ test("workflow control rejects ambiguous production URLs", () => {
     ...CONNECTED,
     TURSO_DATABASE_URL: "libsql://acme.turso.io",
     TURSO_AUTH_TOKEN: "turso-secret",
+    TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
     ...COMMIT_AUTHOR,
     ...CONTROL,
   };
@@ -242,31 +274,32 @@ test("workflow control rejects ambiguous production URLs", () => {
   }
 });
 
-test("workflow hosting accepts an https Turso URL and leaves Gateway and providers optional", () => {
+test("workflow hosting accepts an https Turso URL and leaves providers optional", () => {
   assert.deepEqual(
     parseConfiguration({
       ...CONNECTED,
       TURSO_DATABASE_URL: "https://acme.turso.io",
       TURSO_AUTH_TOKEN: "turso-secret",
+    TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
     }).workflow,
     {
       databaseHost: "acme.turso.io",
       databaseUrl: "https://acme.turso.io",
       databaseAuthToken: "turso-secret",
-      gatewayApiKey: null,
+      databaseReadOnlyAuthToken: "turso-read-only",
       providerHosts: [],
     },
   );
 });
 
-test("the Turso URL and token must be configured together", () => {
+test("the Turso URL and both tokens must be configured together", () => {
   assert.throws(
     () => parseConfiguration({ ...CONNECTED, TURSO_DATABASE_URL: "libsql://acme.turso.io" }),
     new RegExp(WORKFLOW_CONFIGURATION_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
   );
   assert.throws(
     () => parseConfiguration({ ...CONNECTED, TURSO_AUTH_TOKEN: "turso-secret" }),
-    /TURSO_DATABASE_URL and TURSO_AUTH_TOKEN/,
+    /TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, and TURSO_READ_ONLY_AUTH_TOKEN/,
   );
 });
 
@@ -277,6 +310,8 @@ test("workflow hosting requires the connected workspace repository", () => {
         SLACK_CONNECTOR: "slack/gtm-agent",
         TURSO_DATABASE_URL: "libsql://acme.turso.io",
         TURSO_AUTH_TOKEN: "turso-secret",
+    TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
+        TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
       }),
     /workspace/i,
   );
@@ -310,6 +345,8 @@ test("workflow hosting rejects file, non-HTTPS, and path-bearing database URLs",
           ...CONNECTED,
           TURSO_DATABASE_URL: url,
           TURSO_AUTH_TOKEN: "turso-secret",
+    TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
+        TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
         }),
       /TURSO_DATABASE_URL/,
       url,
@@ -338,6 +375,8 @@ test("provider hosts are exact lowercase hostnames outside the trusted host set"
           ...CONNECTED,
           TURSO_DATABASE_URL: "libsql://acme.turso.io",
           TURSO_AUTH_TOKEN: "turso-secret",
+    TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
+        TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
           GTM_WORKFLOW_PROVIDER_HOSTS: hosts,
         }),
       /GTM_WORKFLOW_PROVIDER_HOSTS/,

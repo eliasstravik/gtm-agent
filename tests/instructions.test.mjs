@@ -21,6 +21,12 @@ test("standing instructions define the fixed Slack and workspace mechanics", () 
     /apply_gtm_workspace_changes/,
     /approval.*how acceptance is expressed/is,
     /after the skill.*accept.*loop.*never instead/is,
+    /two steps/i,
+    /Reply with a number/,
+    /ask_question/,
+    /commit URL.*(?:overrides|replaces|instead of).*saved to history|saved to history.*commit URL/is,
+    /no remote and no repo-local Git identity/i,
+    /web_search|web_fetch/,
     /approval.*truncate/is,
     /no durable change was made/i,
     /GitHub commit URL/i,
@@ -43,6 +49,13 @@ test("standing instructions declare the sandbox workflow runtime and its limits"
     /apply_gtm_workspace_changes[\s\S]*workflows\//,
     /Runs: on this computer/,
     /Runs: on Vercel/,
+    /never starts a real run|starts no real run/i,
+    /read-only/i,
+    /TURSO_READ_ONLY_AUTH_TOKEN|read-only (?:Turso )?token/i,
+    /migrations[\s\S]*destructive/i,
+    /expectedRows[\s\S]*expectedProjectedCostUsd/,
+    /cancel action/i,
+    /already applied/i,
     /no Vercel CLI|Vercel CLI is not/i,
     /operate_gtm_workflow/,
     /commit.*`main`.*starts production deployment/i,
@@ -51,9 +64,7 @@ test("standing instructions declare the sandbox workflow runtime and its limits"
     /read-only run preview/i,
     /hook token/i,
     /expose no (?:sandbox )?port|no (?:sandbox )?port/i,
-    /npm run gtm -- runs get/,
     /npm run gtm -- query/,
-    /npx workflow inspect/,
     /firewall|brokered/i,
     /never (?:print|paste|echo)[\s\S]*(?:token|secret|key)/i,
     /same session/i,
@@ -61,6 +72,9 @@ test("standing instructions declare the sandbox workflow runtime and its limits"
     assert.match(instructions, pattern);
   }
   assert.doesNotMatch(instructions, /db:studio/);
+  assert.doesNotMatch(instructions, /GTM_RUN_SECRET/);
+  assert.doesNotMatch(instructions, /AI_GATEWAY_API_KEY/);
+  assert.doesNotMatch(instructions, /npm run gtm -- runs get|npx workflow inspect/);
 });
 
 test("instructions leave domain workflows and no-workspace behavior to skills", () => {

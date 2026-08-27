@@ -7,7 +7,9 @@ export const CONFIGURATION_ERROR =
 export const SLACK_CONFIGURATION_ERROR =
   "SLACK_CONNECTOR must be set to the deployment's Vercel Connect Slack connector.";
 export const WORKFLOW_CONFIGURATION_ERROR =
-  "GTM workflow configuration is incomplete: set both TURSO_DATABASE_URL and TURSO_AUTH_TOKEN, or unset both to run without workflow hosting.";
+  "GTM workflow configuration is incomplete: set TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, and TURSO_READ_ONLY_AUTH_TOKEN together, or unset all three to run without workflow hosting.";
+export const WORKFLOW_TOKEN_ERROR =
+  "TURSO_READ_ONLY_AUTH_TOKEN must differ from TURSO_AUTH_TOKEN: the sandbox baseline brokers only the read-only token.";
 export const WORKFLOW_WORKSPACE_ERROR =
   "GTM workflow hosting requires the connected workspace: configure GITHUB_CONNECTOR and GTM_WORKSPACE_REPOSITORY before TURSO_DATABASE_URL.";
 export const WORKFLOW_CONTROL_CONFIGURATION_ERROR =
@@ -52,17 +54,18 @@ export type ConnectedWorkspaceConfiguration = WorkspaceRepository & {
 };
 
 /**
- * Host-side settings for running the vendored `gtm-workflow` runtime inside
+ * Host-side settings for authoring the vendored `gtm-workflow` project inside
  * the sandbox. The database URL is delivered to the session as
- * `TURSO_DATABASE_URL` (it is not a credential). The Turso token and the
- * workflow Gateway key are brokered at the sandbox firewall and never enter
- * the session environment.
+ * `TURSO_DATABASE_URL` (it is not a credential). The read-only token is
+ * brokered at the sandbox firewall for every session; the write token is
+ * brokered only while an approved save applies migrations. No Gateway key
+ * reaches the sandbox: the sandbox never starts a real run.
  */
 export type WorkflowHostConfiguration = {
   readonly databaseHost: string;
   readonly databaseUrl: string;
   readonly databaseAuthToken: string;
-  readonly gatewayApiKey: string | null;
+  readonly databaseReadOnlyAuthToken: string;
   readonly providerHosts: readonly string[];
 };
 
@@ -207,12 +210,21 @@ function parseWorkflowConfiguration(
 ): WorkflowHostConfiguration | null {
   const databaseValue = present(environment.TURSO_DATABASE_URL);
   const databaseAuthToken = present(environment.TURSO_AUTH_TOKEN);
+  const databaseReadOnlyAuthToken = present(environment.TURSO_READ_ONLY_AUTH_TOKEN);
+  const values = [databaseValue, databaseAuthToken, databaseReadOnlyAuthToken];
+  const configured = values.filter((value) => value !== undefined).length;
 
-  if ((databaseValue === undefined) !== (databaseAuthToken === undefined)) {
+  if (configured === 0) return null;
+  if (
+    configured !== values.length ||
+    databaseValue === undefined ||
+    databaseAuthToken === undefined ||
+    databaseReadOnlyAuthToken === undefined
+  ) {
     throw new Error(WORKFLOW_CONFIGURATION_ERROR);
   }
-  if (databaseValue === undefined || databaseAuthToken === undefined) {
-    return null;
+  if (databaseReadOnlyAuthToken === databaseAuthToken) {
+    throw new Error(WORKFLOW_TOKEN_ERROR);
   }
   if (!hasWorkspace) {
     throw new Error(WORKFLOW_WORKSPACE_ERROR);
@@ -223,7 +235,7 @@ function parseWorkflowConfiguration(
     databaseHost,
     databaseUrl: `https://${databaseHost}`,
     databaseAuthToken,
-    gatewayApiKey: present(environment.GTM_WORKFLOW_GATEWAY_API_KEY) ?? null,
+    databaseReadOnlyAuthToken,
     providerHosts: parseProviderHosts(
       environment.GTM_WORKFLOW_PROVIDER_HOSTS,
       databaseHost,

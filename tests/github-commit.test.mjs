@@ -15,7 +15,92 @@ const input = {
   message: "Add enterprise ICP",
   additions: [{ path: "icps/enterprise/ICP.md", content: "# Enterprise\n" }],
   deletions: [],
+  migrations: [],
+  destructive: false,
 };
+
+const migrating = {
+  summary: "Add a score column",
+  manifest: [{ path: "workflows/drizzle/0002_score.sql", operation: "write" }],
+  expectedHead: "a".repeat(40),
+  message: "Add score column",
+  additions: [
+    { path: "workflows/drizzle/0002_score.sql", content: "ALTER TABLE accounts ADD `score` integer;" },
+  ],
+  deletions: [],
+  migrations: ["workflows/drizzle/0002_score.sql"],
+  destructive: false,
+};
+
+test("a conflict after migrations applied says so instead of hiding the database change", async () => {
+  await assert.rejects(
+    runApprovedWorkspaceMutation(migrating, {
+      async assertWorkspaceReady() {},
+      async getRemoteHead() {
+        return migrating.expectedHead;
+      },
+      async beforeCommit() {
+        return true;
+      },
+      async createCommit() {
+        throw new WorkspaceConflictError();
+      },
+      async refresh() {},
+      async markStale() {},
+    }),
+    (error) => {
+      assert.ok(error instanceof WorkspaceConflictError);
+      assert.match(error.message, /0002_score\.sql/);
+      assert.match(error.message, /already applied/i);
+      assert.match(error.message, /re-propose the same batch/i);
+      return true;
+    },
+  );
+});
+
+test("any commit failure after migrations applied carries the migration list", async () => {
+  await assert.rejects(
+    runApprovedWorkspaceMutation(migrating, {
+      async assertWorkspaceReady() {},
+      async getRemoteHead() {
+        return migrating.expectedHead;
+      },
+      async beforeCommit() {
+        return true;
+      },
+      async createCommit() {
+        throw new Error("GitHub unavailable");
+      },
+      async refresh() {},
+      async markStale() {},
+    }),
+    (error) => {
+      assert.ok(!(error instanceof WorkspaceConflictError));
+      assert.match(error.message, /0002_score\.sql/);
+      assert.match(error.message, /already applied/i);
+      return true;
+    },
+  );
+});
+
+test("a successful migrating save reports the applied migrations", async () => {
+  const result = await runApprovedWorkspaceMutation(migrating, {
+    async assertWorkspaceReady() {},
+    async getRemoteHead() {
+      return migrating.expectedHead;
+    },
+    async beforeCommit() {
+      return true;
+    },
+    async createCommit() {
+      return { commitSha: "b".repeat(40), commitUrl: "https://github.com/acme/repo/commit/b" };
+    },
+    async refresh() {},
+    async markStale() {},
+  });
+  assert.deepEqual(result.migrations, ["workflows/drizzle/0002_score.sql"]);
+  assert.equal(result.status, "committed");
+});
 
 test("validation and local readiness happen before remote access", async () => {
   const events = [];

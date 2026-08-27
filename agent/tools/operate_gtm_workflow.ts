@@ -47,10 +47,27 @@ const inputSchema = z.discriminatedUnion("action", [
       workflowPath,
       inputPath,
       checkpoint,
+      expectedRows: z
+        .number()
+        .int()
+        .nonnegative()
+        .describe("Row count from the preview the user accepted; start refuses when the fresh dry run differs."),
+      expectedProjectedCostUsd: z
+        .number()
+        .nonnegative()
+        .describe("Projected cost in USD from the preview the user accepted; start refuses when the fresh dry run differs."),
       summary: z.string().min(1).max(500),
     })
     .strict(),
   z.object({ action: z.literal("status"), runKey }).strict(),
+  z
+    .object({
+      action: z.literal("cancel"),
+      runKey,
+      reason: z.string().max(500).nullable(),
+      summary: z.string().min(1).max(500),
+    })
+    .strict(),
   z
     .object({
       action: z.literal("approve"),
@@ -65,13 +82,15 @@ const inputSchema = z.discriminatedUnion("action", [
 type Input = z.infer<typeof inputSchema>;
 
 const operationApproval: Approval<Input> = ({ toolInput }) =>
-  toolInput?.action === "start" || toolInput?.action === "approve"
+  toolInput?.action === "start" ||
+  toolInput?.action === "approve" ||
+  toolInput?.action === "cancel"
     ? "user-approval"
     : "not-applicable";
 
 export default defineTool({
   description:
-    "Preview, start, inspect, or approve a workflow on the fixed protected Vercel production project. Preview and status are read-only. Start waits for the exact connected-workspace Git SHA to be live; start and approval require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime.",
+    "Preview, start, inspect, approve, or cancel a workflow on the fixed protected Vercel production project. Preview and status are read-only. Start repeats the dry run, refuses when its rows or projected cost differ from the accepted values, and waits for the exact connected-workspace Git SHA to be live. Start, approval, and cancel require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime.",
   inputSchema,
   approval: operationApproval,
   async execute(input, ctx) {
@@ -88,6 +107,9 @@ export default defineTool({
       configuration.workspace,
     );
     if (input.action === "status") return control.getRun(input.runKey);
+    if (input.action === "cancel") {
+      return control.cancelRun({ reason: input.reason, runKey: input.runKey });
+    }
     if (input.action === "approve") {
       return control.approveRun({
         approved: input.approved,
@@ -106,6 +128,10 @@ export default defineTool({
     };
     return input.action === "preview"
       ? control.previewRun(request)
-      : control.startRun(request);
+      : control.startRun({
+          ...request,
+          expectedProjectedCostUsd: input.expectedProjectedCostUsd,
+          expectedRows: input.expectedRows,
+        });
   },
 });

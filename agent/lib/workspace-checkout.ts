@@ -33,6 +33,7 @@ const FORBIDDEN_SESSION_VARIABLES = [
   "GTM_WORKFLOW_RUN_SECRET",
   "CONNECT_TOKEN",
   "TURSO_AUTH_TOKEN",
+  "TURSO_READ_ONLY_AUTH_TOKEN",
   "GTM_WORKFLOW_GATEWAY_API_KEY",
 ] as const;
 
@@ -361,7 +362,7 @@ function baselineAllowMap(policy: SandboxNetworkPolicy): NetworkAllowMap {
   return policy.allow ?? {};
 }
 
-async function closeSandboxEgress(
+export async function closeSandboxEgress(
   sandbox: Pick<SandboxSession, "setNetworkPolicy">,
   baseline: SandboxNetworkPolicy,
 ): Promise<void> {

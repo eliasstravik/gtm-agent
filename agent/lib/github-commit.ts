@@ -13,8 +13,11 @@ const CREATE_COMMIT_ON_BRANCH = `
 `;
 
 export class WorkspaceConflictError extends Error {
-  constructor(message = "The GTM workspace changed since this Slack thread started. Start a fresh thread and try again.") {
-    super(message);
+  constructor(message?: string) {
+    super(
+      message ??
+        "The GTM workspace changed since this Slack thread started. Start a fresh thread and try again.",
+    );
     this.name = "WorkspaceConflictError";
   }
 }
@@ -28,6 +31,8 @@ export type MutationResult = CommitResult & {
   readonly status: "committed" | "committed_session_stale";
   readonly message: string;
   readonly paths: readonly string[];
+  /** Migration files applied to the workspace database before the commit. */
+  readonly migrations: readonly string[];
 };
 
 export type WorkspaceMutationDependencies = {
@@ -36,7 +41,8 @@ export type WorkspaceMutationDependencies = {
     paths: readonly string[],
   ) => Promise<void>;
   readonly getRemoteHead: () => Promise<string>;
-  readonly beforeCommit?: (input: WorkspaceMutation) => Promise<void>;
+  /** Resolves `true` when it applied the declared migrations. */
+  readonly beforeCommit?: (input: WorkspaceMutation) => Promise<boolean | void>;
   readonly createCommit: (input: WorkspaceMutation) => Promise<CommitResult>;
   readonly refresh: (commitSha: string) => Promise<void>;
   readonly markStale: () => Promise<void>;
@@ -55,13 +61,26 @@ export async function runApprovedWorkspaceMutation(
     throw new WorkspaceConflictError();
   }
 
-  await dependencies.beforeCommit?.(input);
+  const migrated = (await dependencies.beforeCommit?.(input)) === true;
+  const migrations = migrated ? input.migrations : [];
 
   let commit: CommitResult;
   try {
     commit = await dependencies.createCommit(input);
   } catch (error) {
-    if (isStaleGitHubError(error)) throw new WorkspaceConflictError();
+    if (isStaleGitHubError(error)) {
+      throw new WorkspaceConflictError(
+        migrated
+          ? `The GTM workspace changed since this Slack thread started. The accepted ${describeMigrations(migrations)} already applied to the workspace database; the migration is idempotent, so start a fresh thread and re-propose the same batch.`
+          : undefined,
+      );
+    }
+    if (migrated) {
+      throw new Error(
+        `The GitHub commit failed after the accepted ${describeMigrations(migrations)} already applied to the workspace database. No commit was created. Inspect the repository, then re-propose the same batch in a fresh Slack thread; the migration is idempotent.`,
+        { cause: error },
+      );
+    }
     throw error;
   }
 
@@ -76,6 +95,7 @@ export async function runApprovedWorkspaceMutation(
       message:
         "GitHub saved the complete change, but this session could not refresh safely. Start a fresh Slack thread before making another change.",
       paths,
+      migrations,
     };
   }
 
@@ -84,7 +104,12 @@ export async function runApprovedWorkspaceMutation(
     status: "committed",
     message: "GitHub saved the complete change and the session checkout is current.",
     paths,
+    migrations,
   };
+}
+
+function describeMigrations(migrations: readonly string[]): string {
+  return `${migrations.length === 1 ? "migration" : "migrations"} ${migrations.join(", ")}`;
 }
 
 export async function createCommitOnMain(

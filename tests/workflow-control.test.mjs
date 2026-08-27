@@ -108,6 +108,8 @@ test("start waits for the exact Git SHA and rechecks it in the run request", asy
   const started = await control.startRun({
     checkpoint: 3,
     expectedHead: HEAD,
+    expectedProjectedCostUsd: 0.1,
+    expectedRows: 1,
     inputPath: "workflows/data/proof.json",
     workflowPath: "proof",
     sandbox,
@@ -154,6 +156,8 @@ test("a deployment race starts nothing", async () => {
       control.startRun({
         checkpoint: null,
         expectedHead: HEAD,
+        expectedProjectedCostUsd: 0.1,
+        expectedRows: 1,
         inputPath: "workflows/data/proof.json",
         workflowPath: "proof",
         sandbox,
@@ -161,6 +165,131 @@ test("a deployment race starts nothing", async () => {
     /No run was started/i,
   );
   assert.equal(starts, 1);
+});
+
+test("start refuses when the fresh dry run disagrees with the accepted rows or cost", async () => {
+  const { sandbox } = runSandbox();
+  let fetched = 0;
+  const control = new WorkflowControl(
+    configuration,
+    workspace,
+    dependencies(async () => {
+      fetched += 1;
+      return Response.json({ head: HEAD });
+    }),
+  );
+  for (const accepted of [
+    { expectedRows: 2, expectedProjectedCostUsd: 0.1 },
+    { expectedRows: 1, expectedProjectedCostUsd: 0.5 },
+  ]) {
+    await assert.rejects(
+      () =>
+        control.startRun({
+          checkpoint: null,
+          expectedHead: HEAD,
+          ...accepted,
+          inputPath: "workflows/data/proof.json",
+          workflowPath: "proof",
+          sandbox,
+        }),
+      /dry run reports 1 rows? and \$0\.10[\s\S]*No run was started/i,
+    );
+  }
+  assert.equal(fetched, 0);
+});
+
+test("a dry run that fails reports the runtime's own error code instead of a caps message", async () => {
+  const { sandbox } = sandboxWith((command) =>
+    command.includes("--dry-run")
+      ? {
+          exitCode: 2,
+          stdout: "",
+          stderr: '{"error":{"code":"invalid_checkpoint","message":"scheduled workflows do not accept --checkpoint"}}\n',
+        }
+      : ok(),
+  );
+  const control = new WorkflowControl(configuration, workspace, dependencies(async () => {
+    throw new Error("must not fetch");
+  }));
+  await assert.rejects(
+    () =>
+      control.previewRun({
+        checkpoint: 1,
+        expectedHead: HEAD,
+        inputPath: "workflows/data/proof.json",
+        workflowPath: "proof",
+        sandbox,
+      }),
+    /invalid_checkpoint[\s\S]*do not accept --checkpoint/,
+  );
+});
+
+test("cancel posts to the bearer-protected cancel route and returns a sanitized run", async () => {
+  const requests = [];
+  const control = new WorkflowControl(
+    configuration,
+    workspace,
+    dependencies(async (url, init) => {
+      requests.push({ url, init });
+      return Response.json({
+        runKey: "c".repeat(32),
+        workflow: "proof",
+        path: "proof",
+        method: "POST",
+        status: "cancelled",
+        checkpoint: null,
+        startedAt: 1,
+        finishedAt: 2,
+        completed: 3,
+        failed: 0,
+        costUsd: 0.3,
+        error: "cancelled: operator stopped it",
+        input: { secret: "private-input" },
+        approval: { stage: "checkpoint", summary: "3 rows done", token: "proof.hidden-token.checkpoint" },
+      });
+    }),
+  );
+  const cancelled = await control.cancelRun({ runKey: "c".repeat(32), reason: "operator stopped it" });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, `${configuration.productionUrl}/api/runs/${"c".repeat(32)}/cancel`);
+  assert.equal(requests[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(requests[0].init.body), { reason: "operator stopped it" });
+  assert.equal(requests[0].init.headers.authorization, "Bearer run-secret");
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(JSON.stringify(cancelled).includes("hidden-token"), false);
+  assert.equal(JSON.stringify(cancelled).includes("private-input"), false);
+});
+
+test("cancelling a finished run reports the current state instead of failing", async () => {
+  const control = new WorkflowControl(
+    configuration,
+    workspace,
+    dependencies(async (url) => {
+      if (url.endsWith("/cancel")) {
+        return Response.json(
+          { error: { code: "run_not_active", message: "already completed", runKey: "c".repeat(32), status: "completed" } },
+          { status: 409 },
+        );
+      }
+      return Response.json({
+        runKey: "c".repeat(32),
+        workflow: "proof",
+        path: "proof",
+        method: "POST",
+        status: "completed",
+        checkpoint: null,
+        startedAt: 1,
+        finishedAt: 2,
+        completed: 20,
+        failed: 0,
+        costUsd: 2,
+        input: {},
+        approval: null,
+      });
+    }),
+  );
+  const result = await control.cancelRun({ runKey: "c".repeat(32), reason: null });
+  assert.equal(result.status, "completed");
 });
 
 test("status and approval never return hook tokens, input, webhook URLs, or credentials", async () => {

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyAcceptedWorkflowMigrations } from "../agent/lib/workflow-migration.ts";
+import {
+  WorkflowMigrationError,
+  applyAcceptedWorkflowMigrations,
+} from "../agent/lib/workflow-migration.ts";
 
 const HEAD = "a".repeat(40);
 const workspace = {
@@ -13,6 +16,8 @@ const workspace = {
   repository: "acme/workspace",
   staleMarker: "$HOME/.gtm/.acme.stale",
 };
+const baselinePolicy = { allow: { "acme.turso.io": [{ transform: [{ headers: { authorization: "Bearer read-only" } }] }] } };
+const writePolicy = { allow: { "acme.turso.io": [{ transform: [{ headers: { authorization: "Bearer write" } }] }] } };
 
 function mutation(additions) {
   return {
@@ -22,62 +27,132 @@ function mutation(additions) {
     manifest: additions.map(({ path }) => ({ path, operation: "write" })),
     additions,
     deletions: [],
+    migrations: additions
+      .map(({ path }) => path)
+      .filter((path) => /^workflows\/drizzle\/[^/]+\.sql$/.test(path)),
+    destructive: false,
   };
 }
 
-test("accepted SQL is staged and migrated before commit", async () => {
-  const commands = [];
-  const writes = [];
-  const removals = [];
-  const sandbox = {
-    async run({ command }) {
-      commands.push(command);
-      return { exitCode: 0, stdout: "", stderr: "" };
-    },
-    async writeTextFile(file) {
-      writes.push(file);
-    },
-    async removePath(path) {
-      removals.push(path);
+function fakeSandbox(handler = () => ({ exitCode: 0, stdout: "", stderr: "" })) {
+  const events = [];
+  return {
+    events,
+    sandbox: {
+      async run({ command }) {
+        events.push(["run", command]);
+        return handler(command);
+      },
+      async writeTextFile(file) {
+        events.push(["write", file.path]);
+      },
+      async removePath(path) {
+        events.push(["remove", path.path]);
+      },
+      async setNetworkPolicy(policy) {
+        events.push(["policy", policy]);
+      },
     },
   };
+}
 
-  await applyAcceptedWorkflowMigrations({
+test("accepted SQL is staged, installed on the baseline, and migrated only inside the write window", async () => {
+  const { events, sandbox } = fakeSandbox();
+
+  const applied = await applyAcceptedWorkflowMigrations({
+    baselinePolicy,
     mutation: mutation([
       { path: "workflows/drizzle/0002_accounts.sql", content: "alter table accounts add score integer;\n" },
       { path: "workflows/package.json", content: "{}\n" },
     ]),
     sandbox,
     workspace,
+    writePolicy,
   });
 
-  assert.equal(commands.length, 2);
-  assert.match(commands[0], /git.*archive/);
-  assert.match(commands[1], /npm run db:migrate/);
-  assert.equal(writes.length, 2);
-  assert.ok(writes.every(({ path }) => path.startsWith("/workspace/.gtm-migration-")));
-  assert.equal(removals.length, 2);
-  assert.equal(removals.at(-1).recursive, true);
+  assert.equal(applied, true);
+  const runs = events.filter(([kind]) => kind === "run").map(([, command]) => command);
+  assert.equal(runs.length, 3);
+  assert.match(runs[0], /git.*archive/);
+  assert.match(runs[1], /npm ci/);
+  assert.doesNotMatch(runs[1], /db:migrate/);
+  assert.match(runs[2], /npm run db:migrate/);
+  const order = events.map(([kind, value]) =>
+    kind === "policy" ? `policy:${value === writePolicy ? "write" : "baseline"}` : kind === "run" && /db:migrate/.test(value) ? "migrate" : kind,
+  );
+  assert.deepEqual(
+    order.filter((item) => item.startsWith("policy") || item === "migrate"),
+    ["policy:write", "migrate", "policy:baseline"],
+  );
+  assert.ok(events.filter(([kind]) => kind === "write").every(([, path]) => path.startsWith("/workspace/.gtm-migration-")));
+});
+
+test("the write window closes even when the migration fails, and the failure says no commit was attempted", async () => {
+  const { events, sandbox } = fakeSandbox((command) =>
+    /db:migrate/.test(command)
+      ? { exitCode: 1, stdout: "", stderr: "boom" }
+      : { exitCode: 0, stdout: "", stderr: "" },
+  );
+  await assert.rejects(
+    applyAcceptedWorkflowMigrations({
+      baselinePolicy,
+      mutation: mutation([
+        { path: "workflows/drizzle/0002_accounts.sql", content: "alter table accounts add score integer;\n" },
+      ]),
+      sandbox,
+      workspace,
+      writePolicy,
+    }),
+    (error) => {
+      assert.ok(error instanceof WorkflowMigrationError);
+      assert.match(error.message, /No Git commit was attempted/);
+      return true;
+    },
+  );
+  const policies = events.filter(([kind]) => kind === "policy").map(([, value]) => value);
+  assert.deepEqual(policies, [writePolicy, baselinePolicy]);
+});
+
+test("a baseline restore failure after migration is terminal and never looks like success", async () => {
+  let restores = 0;
+  const { sandbox } = fakeSandbox();
+  sandbox.setNetworkPolicy = async (policy) => {
+    if (policy === baselinePolicy) {
+      restores += 1;
+      throw new Error("firewall unavailable");
+    }
+  };
+  await assert.rejects(
+    applyAcceptedWorkflowMigrations({
+      baselinePolicy,
+      mutation: mutation([
+        { path: "workflows/drizzle/0002_accounts.sql", content: "alter table accounts add score integer;\n" },
+      ]),
+      sandbox,
+      workspace,
+      writePolicy,
+    }),
+    (error) => {
+      assert.ok(error instanceof WorkflowMigrationError);
+      assert.match(error.message, /egress could not be restored/i);
+      assert.match(error.message, /already applied/i);
+      return true;
+    },
+  );
+  assert.equal(restores, 2);
 });
 
 test("a workflow change without migration SQL does not touch the sandbox", async () => {
-  let touched = false;
-  await applyAcceptedWorkflowMigrations({
+  const { events, sandbox } = fakeSandbox();
+  const applied = await applyAcceptedWorkflowMigrations({
+    baselinePolicy,
     mutation: mutation([
       { path: "workflows/workflows/proof.ts", content: "export const proof = true;\n" },
     ]),
-    sandbox: {
-      async run() {
-        touched = true;
-      },
-      async writeTextFile() {
-        touched = true;
-      },
-      async removePath() {
-        touched = true;
-      },
-    },
+    sandbox,
     workspace,
+    writePolicy,
   });
-  assert.equal(touched, false);
+  assert.equal(applied, false);
+  assert.deepEqual(events, []);
 });
