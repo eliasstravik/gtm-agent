@@ -19,7 +19,7 @@ Use the accepted intent, resolved GTM workspace and owner, relevant ICP and pers
 
 ## Roles
 
-The agent owns authoring, validation, dry runs, checkpointed runs, scoped changes, migrations, inspection, UI opening, and CLI deployment. The user accepts behavior, limits, tracked changes, real spend, external writes, checkpoint continuation, deployment, destruction, and credentials they must enter.
+The agent owns authoring, validation, dry runs, checkpointed runs, scoped changes, migrations, inspection, UI opening, and deployment through the available trusted control or CLI. The user accepts behavior, limits, tracked changes, real spend, external writes, checkpoint continuation, deployment, destruction, and credentials they must enter.
 
 ## Procedure
 
@@ -45,7 +45,7 @@ Report a run still active after the bounded poll so `gtm runs get` can retrieve 
 ## QC
 
 - Secrets never appear in prompts, tracked files, conversation, or command output; values move from `.env` through the shell only.
-- Compare every `// gtm-lib v3` header with the template before an action. Offer a recopy when versions differ and never apply it silently.
+- Compare every `// gtm-lib v4` header with the template before an action. Offer a recopy when versions differ and never apply it silently.
 - Copy the versioned lib, routes, scripts, and config verbatim and edit workflow-owned tables, adapters, migrations, and workflow files instead.
 - Route every paid vendor call through `provider()` and every model call through `agent()`.
 - Use committed migrations. The project has no `db:push` command.

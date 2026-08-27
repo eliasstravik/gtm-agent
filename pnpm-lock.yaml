@@ -11,6 +11,12 @@ importers:
       '@vercel/connect':
         specifier: 0.6.1
         version: 0.6.1(ai@7.0.55(zod@4.4.3))(eve@0.31.0(ai@7.0.55(zod@4.4.3)))
+      '@vercel/oidc':
+        specifier: 3.8.5
+        version: 3.8.5
+      '@vercel/sdk':
+        specifier: 1.28.22
+        version: 1.28.22
       ai:
         specifier: 7.0.55
         version: 7.0.55(zod@4.4.3)
@@ -270,6 +276,9 @@ packages:
   '@vercel/cli-config@0.2.2':
     resolution: {integrity: sha512-kAy35eymNzRBfmcqEViVQge0KJ59FYEKsPqGNCSJQ7M9HTuFGWd3qPcZos1A5cZpAWRBdiYe82Bcz9P7pIZvUQ==}
 
+  '@vercel/cli-config@0.2.4':
+    resolution: {integrity: sha512-kZ5SojbrV06GHoU6QIWGwDXLov+s9rWZ7QqdqKfJfBGCNUieGfgaCjeeenNy8Y+QC0bwC0dZ2B4l5Hvdmrgpdw==}
+
   '@vercel/cli-exec@1.0.1':
     resolution: {integrity: sha512-g9XerViJ/paZujufXYcu5XYI2vU2rtB4sgdpjUHde5RnOkdmpu0ngH46LCFGHoPXO/C+qDPSczIHIRN+8Q2YKQ==}
     engines: {node: '>= 18'}
@@ -304,6 +313,13 @@ packages:
   '@vercel/oidc@3.8.2':
     resolution: {integrity: sha512-nmVSeQ7tewCkqYBNB/MNL8aPB9sTvtjvqIE6+U17U4IuTyehuWVERDlWrSn0DVfiFAstRlRkGLHBlKHB2FyzbQ==}
     engines: {node: '>= 20'}
+
+  '@vercel/oidc@3.8.5':
+    resolution: {integrity: sha512-RwXYtnt6za+5UO4IaLywN/6B95AlLqynPRUWRJxeJ/qufwkcLUbZNUxYtzT0uMpuraWhlNcGqPNGkTnZr4BGBw==}
+    engines: {node: '>= 20'}
+
+  '@vercel/sdk@1.28.22':
+    resolution: {integrity: sha512-HwXBBQ5jc6078NaEANjdJC7Pbeht3PHj4q+Di1A0gpUouirY1YYExPnQmC1luq2TsQ6ZPBD5YfyPxmlIZUQaBw==}
 
   '@workflow/serde@4.1.0':
     resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
@@ -915,6 +931,11 @@ snapshots:
       xdg-app-paths: 5.5.1
       zod: 4.1.11
 
+  '@vercel/cli-config@0.2.4':
+    dependencies:
+      xdg-app-paths: 5.5.1
+      zod: 4.1.11
+
   '@vercel/cli-exec@1.0.1':
     dependencies:
       execa: 5.1.1
@@ -933,6 +954,16 @@ snapshots:
       '@vercel/cli-config': 0.2.2
       '@vercel/cli-exec': 1.0.1
       jose: 5.10.0
+
+  '@vercel/oidc@3.8.5':
+    dependencies:
+      '@vercel/cli-config': 0.2.4
+      '@vercel/cli-exec': 1.0.1
+      jose: 5.10.0
+
+  '@vercel/sdk@1.28.22':
+    dependencies:
+      zod: 4.4.3
 
   '@workflow/serde@4.1.0': {}
 

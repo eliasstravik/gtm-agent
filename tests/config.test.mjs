@@ -5,6 +5,7 @@ import {
   CONFIGURATION_ERROR,
   SLACK_CONFIGURATION_ERROR,
   WORKFLOW_CONFIGURATION_ERROR,
+  WORKFLOW_CONTROL_CONFIGURATION_ERROR,
   parseConfiguration,
   parseWorkspaceRepository,
 } from "../agent/lib/config.ts";
@@ -13,6 +14,7 @@ test("Slack-only mode is valid without GitHub configuration", () => {
   assert.deepEqual(parseConfiguration({ SLACK_CONNECTOR: "slack/gtm-agent" }), {
     slackConnector: "slack/gtm-agent",
     workflow: null,
+    workflowControl: null,
     workspace: null,
   });
 });
@@ -35,6 +37,7 @@ test("connected mode derives immutable repository metadata", () => {
     {
       slackConnector: "slack/gtm-agent",
       workflow: null,
+      workflowControl: null,
       workspace: {
         branch: "main",
         checkoutDirectory: "$HOME/.gtm/gtm-workspace",
@@ -127,6 +130,76 @@ test("workflow hosting derives brokered Turso, Gateway, and provider metadata", 
       providerHosts: ["api.example-data.com", "enrich.example.net"],
     },
   );
+});
+
+const CONTROL = {
+  GTM_WORKFLOW_VERCEL_TEAM_ID: "team_abc123",
+  GTM_WORKFLOW_VERCEL_PROJECT_ID: "prj_def456",
+  GTM_WORKFLOW_VERCEL_PROJECT: "acme-workflows",
+  GTM_WORKFLOW_VERCEL_URL: "https://acme-workflows.vercel.app",
+  GTM_WORKFLOW_VERCEL_TOKEN: "vercel-secret",
+  GTM_WORKFLOW_RUN_SECRET: "run-secret",
+};
+
+test("workflow control fixes the production authority in host configuration", () => {
+  const parsed = parseConfiguration({
+    ...CONNECTED,
+    TURSO_DATABASE_URL: "libsql://acme.turso.io",
+    TURSO_AUTH_TOKEN: "turso-secret",
+    ...CONTROL,
+  });
+  assert.deepEqual(parsed.workflowControl, {
+    productionUrl: "https://acme-workflows.vercel.app",
+    projectId: "prj_def456",
+    projectName: "acme-workflows",
+    runSecret: "run-secret",
+    teamId: "team_abc123",
+    vercelToken: "vercel-secret",
+  });
+});
+
+test("workflow control is all-or-nothing and requires the hosted connected workspace", () => {
+  assert.throws(
+    () =>
+      parseConfiguration({
+        ...CONNECTED,
+        TURSO_DATABASE_URL: "libsql://acme.turso.io",
+        TURSO_AUTH_TOKEN: "turso-secret",
+        GTM_WORKFLOW_VERCEL_PROJECT_ID: "prj_def456",
+      }),
+    new RegExp(
+      WORKFLOW_CONTROL_CONFIGURATION_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    ),
+  );
+  assert.throws(
+    () =>
+      parseConfiguration({
+        SLACK_CONNECTOR: "slack/gtm-agent",
+        TURSO_DATABASE_URL: "libsql://acme.turso.io",
+        TURSO_AUTH_TOKEN: "turso-secret",
+        ...CONTROL,
+      }),
+    /workspace/i,
+  );
+  assert.throws(() => parseConfiguration({ ...CONNECTED, ...CONTROL }), /hosted Turso/i);
+});
+
+test("workflow control rejects ambiguous Vercel targets", () => {
+  const hosted = {
+    ...CONNECTED,
+    TURSO_DATABASE_URL: "libsql://acme.turso.io",
+    TURSO_AUTH_TOKEN: "turso-secret",
+    ...CONTROL,
+  };
+  for (const [name, value] of [
+    ["GTM_WORKFLOW_VERCEL_TEAM_ID", "stravik"],
+    ["GTM_WORKFLOW_VERCEL_PROJECT_ID", "project"],
+    ["GTM_WORKFLOW_VERCEL_PROJECT", "Acme Workflows"],
+    ["GTM_WORKFLOW_VERCEL_URL", "http://acme.vercel.app"],
+    ["GTM_WORKFLOW_VERCEL_URL", "https://acme.vercel.app/path"],
+  ]) {
+    assert.throws(() => parseConfiguration({ ...hosted, [name]: value }), /GTM_WORKFLOW/);
+  }
 });
 
 test("workflow hosting accepts an https Turso URL and leaves Gateway and providers optional", () => {

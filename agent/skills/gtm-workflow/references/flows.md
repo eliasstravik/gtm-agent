@@ -44,7 +44,7 @@ Bootstrap during the first create and keep the draft outside the repository unti
 ## Create
 
 1. Resolve workspace, owner, and kind. Read the owner's relevant ICP and persona files.
-2. Compare the headered template version before editing an existing project. Offer a v3 recopy when needed.
+2. Compare the headered template version before editing an existing project. Offer a v4 recopy when needed.
 3. Resolve where it runs. For on-demand work, recommend this computer. For scheduled or webhook work, recommend Vercel. Explain that local scheduled work runs only when invoked and model calls on Vercel use the user's budgeted Gateway key.
 4. Resolve the purpose, explicit input shape, stable row key, result columns, paid stages, adapter docs, caps, timing, approval stages, checkpoint, and external writes.
 5. When the workflow needs a provider, read [providers](providers.md), write its adapter against the user's own credential, and test it against fixtures. The skill ships no adapter catalog.
@@ -61,7 +61,7 @@ Cancellation before step 11 writes no tracked bytes and no migration.
 ## Update
 
 1. Resolve the workflow and inspect its header, table, adapter, migrations, schedule, approvals, and deployment state.
-2. Compare every headered file with v3. Include any accepted recopy in the proposal.
+2. Compare every headered file with v4. Include any accepted recopy in the proposal.
 3. Agree the business change. A run-location switch is an update to the same workflow.
 4. Change only the workflow, table, adapter, environment names, cron entry, or deployment metadata required by the request.
 5. New columns are nullable or defaulted. For a rename, plan a custom migration and hand-write `ALTER TABLE ... RENAME`. Keep schedule headers, `scheduledInput`, and cron entries aligned.
@@ -103,8 +103,8 @@ For a run, use `npm run gtm -- runs get <runId|runKey>` and `gtm query` for its 
 
 1. Resolve the workflow and explicit `--input` file. A scheduled workflow also requires `--input`; write `scheduledInput` to an ignored file for a manual run.
 2. Refuse `--checkpoint` for scheduled work. Refuse local start or server reuse while `.env.local` exists.
-3. For local work, start or reuse the server through [open](open.md). For Vercel, use the recorded production URL.
-4. Run:
+3. For local work, start or reuse the server through [open](open.md). For Vercel, use the recorded production URL through the trusted workflow control when it is available.
+4. Run the dry run locally, or call the trusted workflow control's preview action when the sandbox cannot hold the production bearer:
 
 ```text
 npm run gtm -- run <slug> --input <file> --dry-run
@@ -127,8 +127,8 @@ Reply with a number, or type your answer.
 
 Omit option 1 for scheduled work. If the user chooses full scope, start without a checkpoint.
 
-7. Start with `npm run gtm -- run <slug> --input <file> --checkpoint 3 --wait`. The command returns on a terminal state or a wait.
-8. At a checkpoint or approval, report the saved rows, failures, spend, remaining projection, table, and exact inspection command. Ask the user to approve, deny, or comment. Continue the same run with `npm run gtm -- approve <token> --yes --wait` only after their answer.
+7. Start with `npm run gtm -- run <slug> --input <file> --checkpoint 3 --wait`, or use the trusted workflow control's approved start action for Vercel. The action returns on start; inspect the run until it reaches a terminal state or a wait.
+8. At a checkpoint or approval, report the saved rows, failures, spend, remaining projection, table, and exact inspection command. Ask the user to approve, deny, or comment. Continue the same run with `npm run gtm -- approve <token> --yes --wait`, or the trusted workflow control's approved decision action, only after their answer. The trusted control resolves the hook token internally and never returns it to the agent or Slack.
 9. If start returns `run_in_progress`, report the existing run key and do not retry. Inspect it. Use the cancel and reconcile recovery only when the operator chooses to abandon it.
 10. Report completed, failed, rows written, cache hits, vendor cost, model cost, and external changes. Costs for backends without reported billing are projections.
 
@@ -148,8 +148,9 @@ When `GTM_SANDBOX=1`:
 1. Build a new scaffold under `$HOME/.gtm-scratch/<repo>/workflows/`. Reuse it for the session.
 2. Require `TURSO_DATABASE_URL` and `GTM_AGENT_BACKEND=api`. The runtime refuses a file database and CLI backend.
 3. Submit tracked bytes through the host approval tool. Run no `git push`, `git fetch`, `git remote`, or other remote Git command.
-4. Use no Studio and expose no port. Relay `gtm query --format markdown`, `gtm runs get`, `workflow inspect run`, and `workflow inspect hooks` output.
-5. Keep a paused local run and its approval in the same session because a sandbox idle snapshot stops `nitro dev`. Prefer Vercel for approval workflows that must survive.
+4. When trusted workflow controls exist, use their read-only preview and status actions, then their separately approved deploy, start, and approval actions. They pin the connected repository's exact committed HEAD and fixed Vercel project. Keep Vercel credentials, the production run bearer, OIDC tokens, and hook tokens in the host runtime.
+5. Use no Studio and expose no port. Relay `gtm query --format markdown`, `gtm runs get`, `workflow inspect run`, and `workflow inspect hooks` output.
+6. Keep a paused local run and its approval in the same session because a sandbox idle snapshot stops `nitro dev`. Prefer Vercel for approval workflows that must survive.
 
 ## Recovery
 

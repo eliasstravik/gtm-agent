@@ -10,12 +10,19 @@ export const WORKFLOW_CONFIGURATION_ERROR =
   "GTM workflow configuration is incomplete: set both TURSO_DATABASE_URL and TURSO_AUTH_TOKEN, or unset both to run without workflow hosting.";
 export const WORKFLOW_WORKSPACE_ERROR =
   "GTM workflow hosting requires the connected workspace: configure GITHUB_CONNECTOR and GTM_WORKSPACE_REPOSITORY before TURSO_DATABASE_URL.";
+export const WORKFLOW_CONTROL_CONFIGURATION_ERROR =
+  "GTM workflow control configuration is incomplete: set GTM_WORKFLOW_VERCEL_TEAM_ID, GTM_WORKFLOW_VERCEL_PROJECT_ID, GTM_WORKFLOW_VERCEL_PROJECT, GTM_WORKFLOW_VERCEL_URL, GTM_WORKFLOW_VERCEL_TOKEN, and GTM_WORKFLOW_RUN_SECRET together, or unset all six.";
+export const WORKFLOW_CONTROL_HOST_ERROR =
+  "GTM workflow control requires the connected workspace and hosted Turso workflow runtime.";
 
 const REPOSITORY_PATTERN =
   /^(?<owner>[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?)\/(?<repo>[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?)$/;
 const HOSTNAME_PATTERN =
   /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 const DATABASE_URL_PATTERN = /^(?:libsql|https):\/\/(?<host>[^/?#:@]+)$/;
+const VERCEL_TEAM_ID_PATTERN = /^team_[A-Za-z0-9]+$/;
+const VERCEL_PROJECT_ID_PATTERN = /^prj_[A-Za-z0-9]+$/;
+const VERCEL_PROJECT_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/;
 /** Hosts a provider allowlist can never open: they carry other trust decisions. */
 const RESERVED_PROVIDER_HOSTS: ReadonlySet<string> = new Set([
   "github.com",
@@ -54,9 +61,19 @@ export type WorkflowHostConfiguration = {
   readonly providerHosts: readonly string[];
 };
 
+export type WorkflowControlConfiguration = {
+  readonly productionUrl: string;
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly runSecret: string;
+  readonly teamId: string;
+  readonly vercelToken: string;
+};
+
 export type GtmAgentConfiguration = {
   readonly slackConnector: string;
   readonly workflow: WorkflowHostConfiguration | null;
+  readonly workflowControl: WorkflowControlConfiguration | null;
   readonly workspace: ConnectedWorkspaceConfiguration | null;
 };
 
@@ -90,17 +107,21 @@ export function parseConfiguration(
   }
 
   if (connector === undefined || repositoryValue === undefined) {
+    const workflow = parseWorkflowConfiguration(environment, false);
     return {
       slackConnector,
-      workflow: parseWorkflowConfiguration(environment, false),
+      workflow,
+      workflowControl: parseWorkflowControlConfiguration(environment, false, workflow),
       workspace: null,
     };
   }
 
   const repository = parseWorkspaceRepository(repositoryValue);
+  const workflow = parseWorkflowConfiguration(environment, true);
   return {
     slackConnector,
-    workflow: parseWorkflowConfiguration(environment, true),
+    workflow,
+    workflowControl: parseWorkflowControlConfiguration(environment, true, workflow),
     workspace: {
       ...repository,
       branch: WORKSPACE_BRANCH,
@@ -108,6 +129,65 @@ export function parseConfiguration(
       connector,
       staleMarker: `$HOME/.gtm/.${repository.repo}.stale`,
     },
+  };
+}
+
+function parseWorkflowControlConfiguration(
+  environment: Readonly<Record<string, string | undefined>>,
+  hasWorkspace: boolean,
+  workflow: WorkflowHostConfiguration | null,
+): WorkflowControlConfiguration | null {
+  const values = {
+    teamId: present(environment.GTM_WORKFLOW_VERCEL_TEAM_ID),
+    projectId: present(environment.GTM_WORKFLOW_VERCEL_PROJECT_ID),
+    projectName: present(environment.GTM_WORKFLOW_VERCEL_PROJECT),
+    productionUrl: present(environment.GTM_WORKFLOW_VERCEL_URL),
+    vercelToken: present(environment.GTM_WORKFLOW_VERCEL_TOKEN),
+    runSecret: present(environment.GTM_WORKFLOW_RUN_SECRET),
+  };
+  const configured = Object.values(values).filter((value) => value !== undefined).length;
+  if (configured === 0) return null;
+  if (configured !== Object.keys(values).length) {
+    throw new Error(WORKFLOW_CONTROL_CONFIGURATION_ERROR);
+  }
+  if (!hasWorkspace || workflow === null) {
+    throw new Error(WORKFLOW_CONTROL_HOST_ERROR);
+  }
+  if (!VERCEL_TEAM_ID_PATTERN.test(values.teamId!)) {
+    throw new Error("GTM_WORKFLOW_VERCEL_TEAM_ID must be one exact Vercel team ID.");
+  }
+  if (!VERCEL_PROJECT_ID_PATTERN.test(values.projectId!)) {
+    throw new Error("GTM_WORKFLOW_VERCEL_PROJECT_ID must be one exact Vercel project ID.");
+  }
+  if (!VERCEL_PROJECT_NAME_PATTERN.test(values.projectName!)) {
+    throw new Error("GTM_WORKFLOW_VERCEL_PROJECT must be one lowercase Vercel project name.");
+  }
+
+  let productionUrl: URL;
+  try {
+    productionUrl = new URL(values.productionUrl!);
+  } catch {
+    throw new Error("GTM_WORKFLOW_VERCEL_URL must be one exact HTTPS production origin.");
+  }
+  if (
+    productionUrl.protocol !== "https:" ||
+    productionUrl.username !== "" ||
+    productionUrl.password !== "" ||
+    productionUrl.port !== "" ||
+    productionUrl.pathname !== "/" ||
+    productionUrl.search !== "" ||
+    productionUrl.hash !== ""
+  ) {
+    throw new Error("GTM_WORKFLOW_VERCEL_URL must be one exact HTTPS production origin.");
+  }
+
+  return {
+    productionUrl: productionUrl.origin,
+    projectId: values.projectId!,
+    projectName: values.projectName!,
+    runSecret: values.runSecret!,
+    teamId: values.teamId!,
+    vercelToken: values.vercelToken!,
   };
 }
 
