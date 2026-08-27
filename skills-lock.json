@@ -3,7 +3,7 @@
   "status": "ready",
   "source": {
     "url": "https://github.com/eliasstravik/gtm-skills.git",
-    "commit": "292c5a6eaf06c16fe8dedad830b8c9edc2652b2d",
+    "commit": "5ddd992f5688f11c0a6849716b5b7928245c6bcb",
     "license": "LICENSES/gtm-skills-MIT.txt",
     "licenseSha256": "34d04d3fd8fa65074d86e9dbfa2717d9c8d0237b1218cde0ece5d80eeae6fe2d"
   },
