@@ -35,6 +35,7 @@ export type WorkspaceMutationDependencies = {
     paths: readonly string[],
   ) => Promise<void>;
   readonly getRemoteHead: () => Promise<string>;
+  readonly beforeCommit?: (input: WorkspaceMutation) => Promise<void>;
   readonly createCommit: (input: WorkspaceMutation) => Promise<CommitResult>;
   readonly refresh: (commitSha: string) => Promise<void>;
   readonly markStale: () => Promise<void>;
@@ -52,6 +53,8 @@ export async function runApprovedWorkspaceMutation(
   if (remoteHead !== input.expectedHead) {
     throw new WorkspaceConflictError();
   }
+
+  await dependencies.beforeCommit?.(input);
 
   let commit: CommitResult;
   try {

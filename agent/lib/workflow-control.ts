@@ -1,11 +1,4 @@
-import { createHash } from "node:crypto";
-
 import { getVercelOidcToken } from "@vercel/oidc";
-import { VercelCore } from "@vercel/sdk/core.js";
-import { deploymentsCreateDeployment } from "@vercel/sdk/funcs/deploymentsCreateDeployment.js";
-import { deploymentsGetDeployment } from "@vercel/sdk/funcs/deploymentsGetDeployment.js";
-import { deploymentsUploadFile } from "@vercel/sdk/funcs/deploymentsUploadFile.js";
-import { projectsFilterProjectEnvs } from "@vercel/sdk/funcs/projectsFilterProjectEnvs.js";
 import type { SandboxCommandResult, SandboxSession } from "eve/sandbox";
 
 import type {
@@ -14,9 +7,6 @@ import type {
 } from "./config.ts";
 import { assertWorkspaceCheckoutReady } from "./workspace-checkout.ts";
 
-const MAX_DEPLOYMENT_FILES = 512;
-const MAX_DEPLOYMENT_FILE_BYTES = 1_000_000;
-const MAX_DEPLOYMENT_BYTES = 4_000_000;
 const MAX_INPUT_BYTES = 1_000_000;
 const MAX_REMOTE_RESPONSE_BYTES = 1_000_000;
 const MAX_RESULT_BYTES = 50_000;
@@ -28,47 +18,10 @@ const WORKFLOW_PATH_PATTERN =
   /^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)*[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const INPUT_PATH_PATTERN =
   /^workflows\/data\/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,220}[A-Za-z0-9])?\.json$/;
+const HEAD_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const RUN_KEY_PATTERN = /^[0-9a-f]{32}$/;
 
 type Sandbox = Pick<SandboxSession, "run">;
-
-type DeploymentFile = {
-  readonly data: Uint8Array;
-  readonly file: string;
-  readonly sha: string;
-  readonly size: number;
-};
-
-type DeploymentSnapshot = {
-  readonly files: readonly DeploymentFile[];
-  readonly head: string;
-  readonly migrationCount: number;
-  readonly packageMetadata: {
-    readonly libVersion: number;
-    readonly project: string;
-    readonly team: string | null;
-    readonly url: string;
-  };
-  readonly requiredEnvironmentNames: readonly string[];
-  readonly totalBytes: number;
-};
-
-export type WorkflowDeploymentPreview = {
-  readonly environmentReady: true;
-  readonly fileCount: number;
-  readonly head: string;
-  readonly libVersion: number;
-  readonly migrationCount: number;
-  readonly status: "ready";
-  readonly totalBytes: number;
-  readonly validation: unknown;
-};
-
-export type WorkflowDeploymentResult = {
-  readonly head: string;
-  readonly productionUrl: string;
-  readonly status: "ready";
-};
 
 export type WorkflowRunPreview = {
   readonly head: string;
@@ -98,34 +51,15 @@ export type SanitizedWorkflowRun = {
   readonly workflow: string;
 };
 
-type VercelDeploymentState = {
-  readonly id: string;
-  readonly meta: Readonly<Record<string, string>>;
-  readonly projectId: string;
-  readonly readyState: string;
-  readonly url: string;
-};
-
-type VercelAdapter = {
-  readonly deployments: {
-    readonly createDeployment: (input: unknown) => Promise<unknown>;
-    readonly getDeployment: (input: unknown) => Promise<unknown>;
-    readonly uploadFile: (input: unknown) => Promise<unknown>;
-  };
-  readonly projects: {
-    readonly filterProjectEnvs: (input: unknown) => Promise<unknown>;
-  };
-};
-
 type WorkflowControlDependencies = {
-  readonly createVercel: (token: string) => VercelAdapter;
+  readonly fetch: typeof fetch;
   readonly getOidcToken: () => Promise<string>;
   readonly now: () => number;
   readonly pause: (milliseconds: number) => Promise<void>;
 };
 
 const defaultDependencies: WorkflowControlDependencies = {
-  createVercel: createVercelAdapter,
+  fetch: globalThis.fetch,
   getOidcToken: getVercelOidcToken,
   now: Date.now,
   pause: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
@@ -139,82 +73,11 @@ export class WorkflowControl {
   constructor(
     configuration: WorkflowControlConfiguration,
     workspace: ConnectedWorkspaceConfiguration,
-    dependencies: WorkflowControlDependencies = defaultDependencies,
+    dependencies: Partial<WorkflowControlDependencies> = {},
   ) {
     this.#configuration = configuration;
     this.#workspace = workspace;
-    this.#dependencies = dependencies;
-  }
-
-  async previewDeployment(
-    expectedHead: string,
-    sandbox: Sandbox,
-  ): Promise<WorkflowDeploymentPreview> {
-    const snapshot = await this.#prepareDeployment(expectedHead, sandbox);
-    return deploymentPreview(snapshot);
-  }
-
-  async deploy(
-    expectedHead: string,
-    sandbox: Sandbox,
-  ): Promise<WorkflowDeploymentResult> {
-    const snapshot = await this.#prepareDeployment(expectedHead, sandbox);
-    await runSandboxCommand(
-      sandbox,
-      workflowCommand(this.#workspace, "npm run db:migrate"),
-      "Committed cloud migration",
-    );
-
-    const vercel = this.#dependencies.createVercel(
-      this.#configuration.vercelToken,
-    );
-    try {
-      for (let index = 0; index < snapshot.files.length; index += 8) {
-        await Promise.all(
-          snapshot.files.slice(index, index + 8).map((file) =>
-            vercel.deployments.uploadFile({
-              contentLength: file.size,
-              requestBody: file.data,
-              teamId: this.#configuration.teamId,
-              xVercelDigest: file.sha,
-            }),
-          ),
-        );
-      }
-
-      const created = await vercel.deployments.createDeployment({
-        forceNew: "1",
-        skipAutoDetectionConfirmation: "1",
-        teamId: this.#configuration.teamId,
-        requestBody: {
-          files: snapshot.files.map(({ file, sha, size }) => ({ file, sha, size })),
-          meta: {
-            gtmWorkspaceHead: snapshot.head,
-            gtmWorkspaceRepository: this.#workspace.repository,
-          },
-          name: this.#configuration.projectName,
-          project: this.#configuration.projectId,
-          target: "production",
-        },
-      });
-      const createdState = deploymentState(created);
-      const ready = await this.#waitForDeployment(vercel, createdState.id);
-      if (
-        ready.projectId !== this.#configuration.projectId ||
-        ready.meta.gtmWorkspaceHead !== expectedHead
-      ) {
-        throw new Error("Vercel returned a deployment outside the fixed workflow target.");
-      }
-      return {
-        head: expectedHead,
-        productionUrl: this.#configuration.productionUrl,
-        status: "ready",
-      };
-    } catch {
-      throw new Error(
-        "The approved workflow deployment did not reach READY. Inspect the fixed Vercel workflow project before retrying.",
-      );
-    }
+    this.#dependencies = { ...defaultDependencies, ...dependencies };
   }
 
   async previewRun(input: {
@@ -262,7 +125,7 @@ export class WorkflowControl {
     readonly sandbox: Sandbox;
   }): Promise<{ readonly runKey: string; readonly status: "started" | "run_in_progress" }> {
     await this.previewRun(input);
-    await this.#assertProductionHead(input.expectedHead);
+    await this.#waitForProductionHead(input.expectedHead);
     const body = await readWorkflowInput(
       input.sandbox,
       this.#workspace,
@@ -270,14 +133,25 @@ export class WorkflowControl {
     );
     const path = `/api/run/${encodeWorkflowPath(input.workflowPath)}`;
     const suffix = input.checkpoint === null ? "" : `?checkpoint=${input.checkpoint}`;
-    const response = await this.#workflowRequest(`${path}${suffix}`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }, [200, 409]);
+    const response = await this.#workflowRequest(
+      `${path}${suffix}`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: { "x-gtm-workspace-head": input.expectedHead },
+      },
+      [200, 409],
+    );
     if (response.status === 409) {
+      const errorCode = nestedString(response.body, "error", "code");
+      if (errorCode === "deployment_not_ready") {
+        throw new Error(
+          "Production changed before the workflow could start. No run was started.",
+        );
+      }
       const runKey = nestedString(response.body, "error", "runKey");
       if (runKey === null || !RUN_KEY_PATTERN.test(runKey)) {
-        throw new Error("The workflow reported a duplicate run without a valid run key.");
+        throw new Error("The workflow reported a conflict without a valid run key.");
       }
       return { runKey, status: "run_in_progress" };
     }
@@ -305,119 +179,43 @@ export class WorkflowControl {
     if (run.status !== "waiting" || token === null) {
       throw new Error("This run has no pending approval.");
     }
-    await this.#workflowRequest(`/api/approve/${encodeURIComponent(token)}`, {
-      method: "POST",
-      body: JSON.stringify({ approved: input.approved, comment: input.comment }),
-    }, [200]);
+    await this.#workflowRequest(
+      `/api/approve/${encodeURIComponent(token)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ approved: input.approved, comment: input.comment }),
+      },
+      [200],
+    );
     return this.getRun(input.runKey);
   }
 
-  async #prepareDeployment(
-    expectedHead: string,
-    sandbox: Sandbox,
-  ): Promise<DeploymentSnapshot> {
-    await assertWorkspaceCheckoutReady({
-      workspace: this.#workspace,
-      expectedHead,
-      paths: ["workflows"],
-      sandbox,
-    });
-    await ensureWorkflowDependencies(sandbox, this.#workspace);
-    const check = await runSandboxCommand(
-      sandbox,
-      workflowCommand(this.#workspace, "npm run gtm -- check"),
-      "GTM workflow validation",
-    );
-    const validation = lastJson(check.stdout);
-    if (validation === null) {
-      throw new Error("GTM workflow validation returned no structured result.");
-    }
-    const snapshot = await readDeploymentSnapshot(
-      sandbox,
-      this.#workspace,
-      expectedHead,
-    );
-    validatePackageMetadata(snapshot, this.#configuration);
-    await this.#assertEnvironment(snapshot.requiredEnvironmentNames);
-    return Object.assign(snapshot, { validation });
-  }
-
-  async #assertEnvironment(requiredNames: readonly string[]): Promise<void> {
-    try {
-      const response = await this.#dependencies
-        .createVercel(this.#configuration.vercelToken)
-        .projects.filterProjectEnvs({
-          decrypt: "false",
-          idOrName: this.#configuration.projectId,
-          teamId: this.#configuration.teamId,
-        });
-      const responseRecord = record(response);
-      const envs = Array.isArray(responseRecord?.envs) ? responseRecord.envs : [];
-      const production = new Set(
-        envs
-          .map(record)
-          .filter((entry): entry is Record<string, unknown> => entry !== null)
-          .filter((entry) => hasTarget(entry.target, "production"))
-          .map((entry) => directString(entry, "key"))
-          .filter((name): name is string => name !== null),
-      );
-      const missing = requiredNames.filter((name) => !production.has(name));
-      if (missing.length > 0) {
-        throw new Error(`Missing production environment names: ${missing.join(", ")}`);
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("Missing production")) {
-        throw error;
-      }
-      throw new Error(
-        "The fixed Vercel workflow project's production environment could not be verified.",
-      );
-    }
-  }
-
-  async #assertProductionHead(expectedHead: string): Promise<void> {
-    try {
-      const hostname = new URL(this.#configuration.productionUrl).hostname;
-      const deployment = await this.#dependencies
-        .createVercel(this.#configuration.vercelToken)
-        .deployments.getDeployment({
-          idOrUrl: hostname,
-          teamId: this.#configuration.teamId,
-        });
-      const state = deploymentState(deployment);
-      if (
-        state.projectId !== this.#configuration.projectId ||
-        state.readyState !== "READY" ||
-        state.meta.gtmWorkspaceHead !== expectedHead
-      ) {
-        throw new Error("head mismatch");
-      }
-    } catch {
-      throw new Error(
-        "The production workflow deployment does not match this workspace HEAD. Deploy it before starting a real run.",
-      );
-    }
-  }
-
-  async #waitForDeployment(
-    vercel: VercelAdapter,
-    deploymentId: string,
-  ): Promise<VercelDeploymentState> {
+  async #waitForProductionHead(expectedHead: string): Promise<void> {
     const deadline = this.#dependencies.now() + DEPLOYMENT_TIMEOUT_MS;
     while (this.#dependencies.now() < deadline) {
-      const state = deploymentState(
-        await vercel.deployments.getDeployment({
-          idOrUrl: deploymentId,
-          teamId: this.#configuration.teamId,
-        }),
-      );
-      if (state.readyState === "READY") return state;
-      if (["ERROR", "CANCELED"].includes(state.readyState)) {
-        throw new Error("deployment failed");
-      }
+      const head = await this.#readProductionHead();
+      if (head === expectedHead) return;
       await this.#dependencies.pause(POLL_INTERVAL_MS);
     }
-    throw new Error("deployment timed out");
+    throw new Error(
+      "The production workflow did not reach this workspace commit in time. No run was started.",
+    );
+  }
+
+  async #readProductionHead(): Promise<string | null> {
+    const response = await this.#authenticatedFetch("/api/deployment", {});
+    const text = await boundedText(response);
+    if (response.status === 404 || response.status === 503) return null;
+    if (response.status !== 200) {
+      throw new Error(
+        `The workflow deployment check failed with status ${response.status}.`,
+      );
+    }
+    const head = directString(record(parseJson(text)), "head");
+    if (head === null || !HEAD_PATTERN.test(head)) {
+      throw new Error("The workflow deployment returned an invalid Git commit.");
+    }
+    return head;
   }
 
   async #getRawRun(runKey: string): Promise<Record<string, unknown>> {
@@ -433,6 +231,15 @@ export class WorkflowControl {
     init: RequestInit,
     acceptedStatuses: readonly number[],
   ): Promise<{ readonly body: unknown; readonly status: number }> {
+    const response = await this.#authenticatedFetch(path, init);
+    const body = parseJson(await boundedText(response));
+    if (!acceptedStatuses.includes(response.status)) {
+      throw new Error(`The workflow request failed with status ${response.status}.`);
+    }
+    return { body, status: response.status };
+  }
+
+  async #authenticatedFetch(path: string, init: RequestInit): Promise<Response> {
     let oidcToken: string;
     try {
       oidcToken = await this.#dependencies.getOidcToken();
@@ -441,92 +248,33 @@ export class WorkflowControl {
         "The Eve deployment could not obtain its Vercel OIDC identity for the protected workflow project.",
       );
     }
-    const response = await fetch(`${this.#configuration.productionUrl}${path}`, {
+    return this.#dependencies.fetch(`${this.#configuration.productionUrl}${path}`, {
       ...init,
       headers: {
         ...init.headers,
-        "authorization": `Bearer ${this.#configuration.runSecret}`,
+        authorization: `Bearer ${this.#configuration.runSecret}`,
         "content-type": "application/json",
         "x-vercel-trusted-oidc-idp-token": oidcToken,
       },
       signal: AbortSignal.timeout(20_000),
     });
-    const text = await response.text();
-    if (Buffer.byteLength(text, "utf8") > MAX_REMOTE_RESPONSE_BYTES) {
-      throw new Error("The workflow response exceeded the host control limit.");
-    }
-    let body: unknown;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      throw new Error("The workflow returned a non-JSON response.");
-    }
-    if (!acceptedStatuses.includes(response.status)) {
-      throw new Error(`The workflow request failed with status ${response.status}.`);
-    }
-    return { body, status: response.status };
   }
 }
 
-function createVercelAdapter(token: string): VercelAdapter {
-  const client = new VercelCore({ bearerToken: token });
-  return {
-    deployments: {
-      createDeployment: (input) =>
-        unwrapSdk(
-          deploymentsCreateDeployment(
-            client,
-            input as Parameters<typeof deploymentsCreateDeployment>[1],
-          ),
-        ),
-      getDeployment: (input) =>
-        unwrapSdk(
-          deploymentsGetDeployment(
-            client,
-            input as Parameters<typeof deploymentsGetDeployment>[1],
-          ),
-        ),
-      uploadFile: (input) =>
-        unwrapSdk(
-          deploymentsUploadFile(
-            client,
-            input as Parameters<typeof deploymentsUploadFile>[1],
-          ),
-        ),
-    },
-    projects: {
-      filterProjectEnvs: (input) =>
-        unwrapSdk(
-          projectsFilterProjectEnvs(
-            client,
-            input as Parameters<typeof projectsFilterProjectEnvs>[1],
-          ),
-        ),
-    },
-  };
+async function boundedText(response: Response): Promise<string> {
+  const text = await response.text();
+  if (Buffer.byteLength(text, "utf8") > MAX_REMOTE_RESPONSE_BYTES) {
+    throw new Error("The workflow response exceeded the host control limit.");
+  }
+  return text;
 }
 
-async function unwrapSdk<T>(
-  promise: Promise<{ readonly ok: true; readonly value: T } | { readonly ok: false }>,
-): Promise<T> {
-  const result = await promise;
-  if (!result.ok) throw new Error("Vercel request failed.");
-  return result.value;
-}
-
-function deploymentPreview(
-  snapshot: DeploymentSnapshot & { readonly validation?: unknown },
-): WorkflowDeploymentPreview {
-  return {
-    environmentReady: true,
-    fileCount: snapshot.files.length,
-    head: snapshot.head,
-    libVersion: snapshot.packageMetadata.libVersion,
-    migrationCount: snapshot.migrationCount,
-    status: "ready",
-    totalBytes: snapshot.totalBytes,
-    validation: snapshot.validation ?? null,
-  };
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("The workflow returned a non-JSON response.");
+  }
 }
 
 async function ensureWorkflowDependencies(
@@ -541,103 +289,6 @@ async function ensureWorkflowDependencies(
     ),
     "GTM workflow dependency installation",
   );
-}
-
-async function readDeploymentSnapshot(
-  sandbox: Sandbox,
-  workspace: ConnectedWorkspaceConfiguration,
-  expectedHead: string,
-): Promise<DeploymentSnapshot> {
-  const script = `
-import { lstatSync, readFileSync } from "node:fs";
-const input = [];
-for await (const chunk of process.stdin) input.push(chunk);
-const paths = Buffer.concat(input).toString("utf8").split("\\0").filter(Boolean);
-if (paths.length === 0 || paths.length > ${MAX_DEPLOYMENT_FILES}) throw new Error("invalid file count");
-let total = 0;
-const files = paths.map((path) => {
-  if (!path.startsWith("workflows/") || path.includes("..")) throw new Error("invalid path");
-  const stat = lstatSync(path);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > ${MAX_DEPLOYMENT_FILE_BYTES}) throw new Error("invalid file");
-  total += stat.size;
-  if (total > ${MAX_DEPLOYMENT_BYTES}) throw new Error("source too large");
-  return { file: path.slice("workflows/".length), size: stat.size, data: readFileSync(path).toString("base64") };
-});
-process.stdout.write(JSON.stringify({ files, totalBytes: total }));
-`;
-  const command = `set -euo pipefail\ncd "${workspace.checkoutDirectory}"\ntest "$(git rev-parse HEAD)" = "${expectedHead}"\ngit ls-files -z -- workflows/ | node --input-type=module -e ${shellQuote(script)}`;
-  const result = await runSandboxCommand(
-    sandbox,
-    command,
-    "GTM workflow deployment source collection",
-  );
-  const raw = JSON.parse(result.stdout) as {
-    files?: { data?: string; file?: string; size?: number }[];
-    totalBytes?: number;
-  };
-  if (!Array.isArray(raw.files) || typeof raw.totalBytes !== "number") {
-    throw new Error("The workflow deployment source was invalid.");
-  }
-  const files = raw.files.map((entry) => {
-    if (
-      typeof entry.file !== "string" ||
-      typeof entry.data !== "string" ||
-      typeof entry.size !== "number"
-    ) {
-      throw new Error("The workflow deployment source contained an invalid file.");
-    }
-    const data = Buffer.from(entry.data, "base64");
-    if (data.byteLength !== entry.size) {
-      throw new Error("The workflow deployment source size did not match.");
-    }
-    return {
-      data,
-      file: entry.file,
-      sha: createHash("sha1").update(data).digest("hex"),
-      size: entry.size,
-    };
-  });
-  const packageFile = files.find((file) => file.file === "package.json");
-  if (packageFile === undefined) {
-    throw new Error("The tracked workflow project has no package.json.");
-  }
-  const packageJson = JSON.parse(Buffer.from(packageFile.data).toString("utf8"));
-  const metadata = record(record(packageJson)?.gtm);
-  const vercel = record(metadata?.vercel);
-  const envExample = files.find((file) => file.file === ".env.example");
-  if (envExample === undefined) {
-    throw new Error("The tracked workflow project has no .env.example.");
-  }
-  const requiredEnvironmentNames = new Set(
-    Buffer.from(envExample.data)
-      .toString("utf8")
-      .split("\n")
-      .map((line) => /^([A-Z][A-Z0-9_]*)=/.exec(line)?.[1])
-      .filter((name): name is string => name !== undefined),
-  );
-  for (const name of ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN", "GTM_RUN_SECRET"]) {
-    requiredEnvironmentNames.add(name);
-  }
-  const vercelFile = files.find((file) => file.file === "vercel.json");
-  if (vercelFile !== undefined) {
-    const vercelJson = record(JSON.parse(Buffer.from(vercelFile.data).toString("utf8")));
-    if (Array.isArray(vercelJson?.crons) && vercelJson.crons.length > 0) {
-      requiredEnvironmentNames.add("CRON_SECRET");
-    }
-  }
-  return {
-    files,
-    head: expectedHead,
-    migrationCount: files.filter((file) => /^drizzle\/[^/]+\.sql$/.test(file.file)).length,
-    packageMetadata: {
-      libVersion: typeof metadata?.libVersion === "number" ? metadata.libVersion : -1,
-      project: directString(vercel, "project") ?? "",
-      team: directString(vercel, "team"),
-      url: directString(vercel, "url") ?? "",
-    },
-    requiredEnvironmentNames: [...requiredEnvironmentNames].sort(),
-    totalBytes: raw.totalBytes,
-  };
 }
 
 async function readWorkflowInput(
@@ -659,24 +310,11 @@ process.stdout.write(readFileSync(path).toString("base64"));
     "GTM workflow input read",
   );
   try {
-    return JSON.parse(Buffer.from(result.stdout.replaceAll("\n", ""), "base64").toString("utf8"));
+    return JSON.parse(
+      Buffer.from(result.stdout.replaceAll("\n", ""), "base64").toString("utf8"),
+    );
   } catch {
     throw new Error("The workflow input file is not valid bounded JSON.");
-  }
-}
-
-function validatePackageMetadata(
-  snapshot: DeploymentSnapshot,
-  configuration: WorkflowControlConfiguration,
-): void {
-  if (
-    snapshot.packageMetadata.libVersion !== 4 ||
-    snapshot.packageMetadata.project !== configuration.projectName ||
-    snapshot.packageMetadata.url !== configuration.productionUrl
-  ) {
-    throw new Error(
-      "The committed workflow deployment metadata does not match the fixed Vercel workflow project.",
-    );
   }
 }
 
@@ -686,7 +324,7 @@ function validateRunInput(input: {
   readonly inputPath: string;
   readonly workflowPath: string;
 }): void {
-  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(input.expectedHead)) {
+  if (!HEAD_PATTERN.test(input.expectedHead)) {
     throw new Error("The workflow action requires one full committed workspace HEAD.");
   }
   if (!WORKFLOW_PATH_PATTERN.test(input.workflowPath)) {
@@ -767,27 +405,6 @@ function redactResult(value: unknown): unknown {
   );
 }
 
-function deploymentState(value: unknown): VercelDeploymentState {
-  const deployment = record(value);
-  const id = deployment === null ? null : directString(deployment, "id") ?? directString(deployment, "uid");
-  const projectId = deployment === null ? null : directString(deployment, "projectId");
-  const readyState = deployment === null ? null : directString(deployment, "readyState");
-  const url = deployment === null ? null : directString(deployment, "url");
-  if (id === null || projectId === null || readyState === null || url === null) {
-    throw new Error("Vercel returned an invalid deployment record.");
-  }
-  const meta = record(deployment?.meta) ?? {};
-  return {
-    id,
-    meta: Object.fromEntries(
-      Object.entries(meta).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-    ),
-    projectId,
-    readyState,
-    url,
-  };
-}
-
 function workflowCommand(
   workspace: ConnectedWorkspaceConfiguration,
   command: string,
@@ -813,8 +430,7 @@ async function runSandboxCommand(
 function lastJson(output: string): Record<string, unknown> | null {
   for (const line of output.trim().split("\n").reverse()) {
     try {
-      const value = JSON.parse(line);
-      const parsed = record(value);
+      const parsed = record(JSON.parse(line));
       if (parsed !== null) return parsed;
     } catch {}
   }
@@ -823,10 +439,6 @@ function lastJson(output: string): Record<string, unknown> | null {
 
 function encodeWorkflowPath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
-}
-
-function hasTarget(value: unknown, target: string): boolean {
-  return Array.isArray(value) ? value.includes(target) : value === target;
 }
 
 function shellQuote(value: string): string {

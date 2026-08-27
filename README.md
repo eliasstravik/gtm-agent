@@ -46,7 +46,7 @@ Ask for workspace, ICP, persona, or workflow lifecycle work in Slack without sen
 
 ### ⚙️ Build and run reusable GTM workflows
 
-Create, update, inspect, delete, or run a saved workflow. Each workflow declares a typed result table, commits its migrations, and upserts rows by a stable key. In this deployment every workflow runs inside the sandbox as `Runs: on this computer` against the workspace's own Turso database, with a zero-spend dry run and a checkpoint before real spend.
+Create, update, inspect, delete, or run a saved workflow. Each workflow declares a typed result table, commits its migrations, and upserts rows by a stable key. Workflows can run inside the sandbox or on a Git-connected Vercel workflow project, always with a zero-spend dry run and a checkpoint before real spend.
 
 ### ⚡ Use one agent for four focused jobs
 
@@ -99,7 +99,7 @@ It validates the complete path manifest and expected HEAD, asks for native appro
 
 ### Can the agent run GTM workflows?
 
-Yes, when the deployment sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` for the workspace's own Turso database. The sandbox drafts the workflow project in scratch space, submits the accepted tracked files for approval, and runs workflows locally in the sandbox against Turso. The Turso token and an optional budgeted Gateway key are injected at the sandbox firewall, so no workflow credential enters the sandbox. Deploying a workflow to Vercel from Slack is not available; put scheduled or long-pausing workflows on Vercel from a keyboard.
+Yes, when the deployment sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` for the workspace's own Turso database. The sandbox drafts the workflow project in scratch space and submits accepted tracked files for approval. Local workflows run in the sandbox; Vercel workflows deploy when that approved atomic commit reaches workspace `main`. Eve waits for the exact Git SHA before starting production. The Turso token and optional budgeted Gateway key are injected at the sandbox firewall, so no workflow credential enters the sandbox.
 
 ### Can the agent browse the web or update our CRM?
 

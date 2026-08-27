@@ -21,7 +21,6 @@
   "dependencies": {
     "@vercel/connect": "0.6.1",
     "@vercel/oidc": "3.8.5",
-    "@vercel/sdk": "1.28.22",
     "ai": "7.0.55",
     "eve": "0.31.0",
     "octokit": "5.0.5",

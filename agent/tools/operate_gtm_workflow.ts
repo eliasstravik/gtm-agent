@@ -71,7 +71,7 @@ const operationApproval: Approval<Input> = ({ toolInput }) =>
 
 export default defineTool({
   description:
-    "Preview, start, inspect, or approve a workflow on the fixed protected Vercel production project. Preview and status are read-only. Start and approval require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime.",
+    "Preview, start, inspect, or approve a workflow on the fixed protected Vercel production project. Preview and status are read-only. Start waits for the exact connected-workspace Git SHA to be live; start and approval require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime.",
   inputSchema,
   approval: operationApproval,
   async execute(input, ctx) {

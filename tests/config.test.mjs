@@ -133,11 +133,7 @@ test("workflow hosting derives brokered Turso, Gateway, and provider metadata", 
 });
 
 const CONTROL = {
-  GTM_WORKFLOW_VERCEL_TEAM_ID: "team_abc123",
-  GTM_WORKFLOW_VERCEL_PROJECT_ID: "prj_def456",
-  GTM_WORKFLOW_VERCEL_PROJECT: "acme-workflows",
   GTM_WORKFLOW_VERCEL_URL: "https://acme-workflows.vercel.app",
-  GTM_WORKFLOW_VERCEL_TOKEN: "vercel-secret",
   GTM_WORKFLOW_RUN_SECRET: "run-secret",
 };
 
@@ -150,11 +146,7 @@ test("workflow control fixes the production authority in host configuration", ()
   });
   assert.deepEqual(parsed.workflowControl, {
     productionUrl: "https://acme-workflows.vercel.app",
-    projectId: "prj_def456",
-    projectName: "acme-workflows",
     runSecret: "run-secret",
-    teamId: "team_abc123",
-    vercelToken: "vercel-secret",
   });
 });
 
@@ -165,7 +157,7 @@ test("workflow control is all-or-nothing and requires the hosted connected works
         ...CONNECTED,
         TURSO_DATABASE_URL: "libsql://acme.turso.io",
         TURSO_AUTH_TOKEN: "turso-secret",
-        GTM_WORKFLOW_VERCEL_PROJECT_ID: "prj_def456",
+        GTM_WORKFLOW_VERCEL_URL: "https://acme-workflows.vercel.app",
       }),
     new RegExp(
       WORKFLOW_CONTROL_CONFIGURATION_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
@@ -184,7 +176,7 @@ test("workflow control is all-or-nothing and requires the hosted connected works
   assert.throws(() => parseConfiguration({ ...CONNECTED, ...CONTROL }), /hosted Turso/i);
 });
 
-test("workflow control rejects ambiguous Vercel targets", () => {
+test("workflow control rejects ambiguous production URLs", () => {
   const hosted = {
     ...CONNECTED,
     TURSO_DATABASE_URL: "libsql://acme.turso.io",
@@ -192,9 +184,6 @@ test("workflow control rejects ambiguous Vercel targets", () => {
     ...CONTROL,
   };
   for (const [name, value] of [
-    ["GTM_WORKFLOW_VERCEL_TEAM_ID", "stravik"],
-    ["GTM_WORKFLOW_VERCEL_PROJECT_ID", "project"],
-    ["GTM_WORKFLOW_VERCEL_PROJECT", "Acme Workflows"],
     ["GTM_WORKFLOW_VERCEL_URL", "http://acme.vercel.app"],
     ["GTM_WORKFLOW_VERCEL_URL", "https://acme.vercel.app/path"],
   ]) {

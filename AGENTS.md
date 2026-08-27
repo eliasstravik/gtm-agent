@@ -14,8 +14,8 @@ This is a deliberately small [Eve](https://eve.dev) Slack agent template. Preser
 - Keep Slack as the only channel and `apply_gtm_workspace_changes` as the only authored write tool.
 - Keep the workspace repository optional. Do not add alternate memory, Blob, a custom web or workflow UI, subagents, generic GitHub tools, or multi-tenant infrastructure.
 - The only database is the user's own Turso database, configured per deployment with `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` for the vendored `gtm-workflow` runtime. The only schedules are Vercel Cron entries on the user's own workflow project. Add no agent-owned database, schedule, or cache.
-- Keep GitHub access repository-bound, short-lived, approval-gated, and atomic on `main`. Workflow hosting requires the connected workspace.
-- Keep the sandbox at deny-all egress except the exact workflow allowlist derived from configuration (npm registry, the workspace Turso host, the Gateway host, accepted provider hosts). Never expose a sandbox port and never enable `api.vercel.com` without a brokered deploy credential.
+- Keep GitHub access repository-bound, short-lived, approval-gated, and atomic on `main`. Workflow hosting requires the connected workspace; its Vercel project deploys that repository's `workflows/` root from `main`.
+- Keep the sandbox at deny-all egress except the exact workflow allowlist derived from configuration (npm registry, the workspace Turso host, the Gateway host, accepted provider hosts). Never expose a sandbox port or enable `api.vercel.com`; workflow deployment comes from the repository's Vercel Git connection.
 - Never expose connector tokens to sandbox commands or persist a Git remote or credentials in the checkout. The Turso token and the workflow Gateway key are brokered at the sandbox firewall. The only session-environment deliveries are `TURSO_DATABASE_URL`, which is not a credential, and a non-secret `AI_GATEWAY_API_KEY` placeholder; do not add session-environment delivery of any token.
 - Treat `agent/skills/` as generated, license-carrying source. `skills-lock.json` is its integrity manifest.
 

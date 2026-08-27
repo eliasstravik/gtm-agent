@@ -11,7 +11,7 @@ export const WORKFLOW_CONFIGURATION_ERROR =
 export const WORKFLOW_WORKSPACE_ERROR =
   "GTM workflow hosting requires the connected workspace: configure GITHUB_CONNECTOR and GTM_WORKSPACE_REPOSITORY before TURSO_DATABASE_URL.";
 export const WORKFLOW_CONTROL_CONFIGURATION_ERROR =
-  "GTM workflow control configuration is incomplete: set GTM_WORKFLOW_VERCEL_TEAM_ID, GTM_WORKFLOW_VERCEL_PROJECT_ID, GTM_WORKFLOW_VERCEL_PROJECT, GTM_WORKFLOW_VERCEL_URL, GTM_WORKFLOW_VERCEL_TOKEN, and GTM_WORKFLOW_RUN_SECRET together, or unset all six.";
+  "GTM workflow control configuration is incomplete: set GTM_WORKFLOW_VERCEL_URL and GTM_WORKFLOW_RUN_SECRET together, or unset both.";
 export const WORKFLOW_CONTROL_HOST_ERROR =
   "GTM workflow control requires the connected workspace and hosted Turso workflow runtime.";
 
@@ -20,9 +20,6 @@ const REPOSITORY_PATTERN =
 const HOSTNAME_PATTERN =
   /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 const DATABASE_URL_PATTERN = /^(?:libsql|https):\/\/(?<host>[^/?#:@]+)$/;
-const VERCEL_TEAM_ID_PATTERN = /^team_[A-Za-z0-9]+$/;
-const VERCEL_PROJECT_ID_PATTERN = /^prj_[A-Za-z0-9]+$/;
-const VERCEL_PROJECT_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/;
 /** Hosts a provider allowlist can never open: they carry other trust decisions. */
 const RESERVED_PROVIDER_HOSTS: ReadonlySet<string> = new Set([
   "github.com",
@@ -63,11 +60,7 @@ export type WorkflowHostConfiguration = {
 
 export type WorkflowControlConfiguration = {
   readonly productionUrl: string;
-  readonly projectId: string;
-  readonly projectName: string;
   readonly runSecret: string;
-  readonly teamId: string;
-  readonly vercelToken: string;
 };
 
 export type GtmAgentConfiguration = {
@@ -138,11 +131,7 @@ function parseWorkflowControlConfiguration(
   workflow: WorkflowHostConfiguration | null,
 ): WorkflowControlConfiguration | null {
   const values = {
-    teamId: present(environment.GTM_WORKFLOW_VERCEL_TEAM_ID),
-    projectId: present(environment.GTM_WORKFLOW_VERCEL_PROJECT_ID),
-    projectName: present(environment.GTM_WORKFLOW_VERCEL_PROJECT),
     productionUrl: present(environment.GTM_WORKFLOW_VERCEL_URL),
-    vercelToken: present(environment.GTM_WORKFLOW_VERCEL_TOKEN),
     runSecret: present(environment.GTM_WORKFLOW_RUN_SECRET),
   };
   const configured = Object.values(values).filter((value) => value !== undefined).length;
@@ -153,16 +142,6 @@ function parseWorkflowControlConfiguration(
   if (!hasWorkspace || workflow === null) {
     throw new Error(WORKFLOW_CONTROL_HOST_ERROR);
   }
-  if (!VERCEL_TEAM_ID_PATTERN.test(values.teamId!)) {
-    throw new Error("GTM_WORKFLOW_VERCEL_TEAM_ID must be one exact Vercel team ID.");
-  }
-  if (!VERCEL_PROJECT_ID_PATTERN.test(values.projectId!)) {
-    throw new Error("GTM_WORKFLOW_VERCEL_PROJECT_ID must be one exact Vercel project ID.");
-  }
-  if (!VERCEL_PROJECT_NAME_PATTERN.test(values.projectName!)) {
-    throw new Error("GTM_WORKFLOW_VERCEL_PROJECT must be one lowercase Vercel project name.");
-  }
-
   let productionUrl: URL;
   try {
     productionUrl = new URL(values.productionUrl!);
@@ -183,11 +162,7 @@ function parseWorkflowControlConfiguration(
 
   return {
     productionUrl: productionUrl.origin,
-    projectId: values.projectId!,
-    projectName: values.projectName!,
     runSecret: values.runSecret!,
-    teamId: values.teamId!,
-    vercelToken: values.vercelToken!,
   };
 }
 

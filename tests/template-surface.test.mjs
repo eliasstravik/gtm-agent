@@ -49,7 +49,6 @@ test("the sole authored write tool is approval-gated and repository-bound", asyn
   const tools = await readdir(new URL("agent/tools/", root));
   assert.deepEqual(tools.sort(), [
     "apply_gtm_workspace_changes.ts",
-    "deploy_gtm_workflows.ts",
     "operate_gtm_workflow.ts",
   ]);
 
@@ -75,22 +74,19 @@ test("the sole authored write tool is approval-gated and repository-bound", asyn
 });
 
 test("trusted workflow controls keep production authority out of model input and sandbox egress", async () => {
-  const deployment = await read("agent/tools/deploy_gtm_workflows.ts");
   const operation = await read("agent/tools/operate_gtm_workflow.ts");
   const control = await read("agent/lib/workflow-control.ts");
+  const migration = await read("agent/lib/workflow-migration.ts");
 
-  assert.match(deployment, /action[\s\S]+preview[\s\S]+deploy/);
-  assert.match(deployment, /user-approval/);
   assert.match(operation, /preview[\s\S]+start[\s\S]+status[\s\S]+approve/);
   assert.match(operation, /user-approval/);
   assert.match(control, /x-vercel-trusted-oidc-idp-token/);
-  assert.match(control, /gtmWorkspaceHead/);
-  assert.match(control, /git ls-files -z -- workflows\//);
-  assert.match(control, /npm run db:migrate/);
-  assert.match(control, /filterProjectEnvs/);
+  assert.match(control, /x-gtm-workspace-head/);
+  assert.match(control, /\/api\/deployment/);
+  assert.match(migration, /npm run db:migrate/);
   assert.doesNotMatch(control, /console\.(?:log|error)|process\.env/);
 
-  for (const source of [deployment, operation]) {
+  for (const source of [operation]) {
     const schemaBlock = source.slice(source.indexOf("const inputSchema"), source.indexOf("export default defineTool"));
     for (const forbidden of [
       "teamId",

@@ -24,6 +24,7 @@ import {
   createCommitOnMain,
   runApprovedWorkspaceMutation,
 } from "../lib/github-commit.ts";
+import { applyAcceptedWorkflowMigrations } from "../lib/workflow-migration.ts";
 
 const pathSchema = z
   .string()
@@ -90,7 +91,7 @@ const inputSchema = z
 
 export default defineTool({
   description:
-    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state.",
+    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Accepted workflow migrations apply before the commit; Vercel workflow changes then deploy through the repository's Git connection. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state.",
   inputSchema,
   approval: always(),
   async execute(input, ctx) {
@@ -151,6 +152,8 @@ export default defineTool({
           });
           return response.data.object.sha;
         },
+        beforeCommit: (mutation) =>
+          applyAcceptedWorkflowMigrations({ mutation, sandbox, workspace }),
         createCommit: (mutation) =>
           createCommitOnMain(octokit, {
             owner: workspace.owner,
