@@ -1,6 +1,6 @@
 ---
 name: gtm-icp
-description: Triggers when a user asks to create, define, refine, update, delete, or doctor an ideal customer profile file in a connected GTM workspace, including choosing which organization owns it. Not for personas or for creating, importing, deleting, or repairing the workspace repository itself.
+description: Triggers when a user asks to create, define, refine, update, delete, or doctor an ideal customer profile file in a connected GTM workspace, including choosing which organization owns it. Not for personas or for creating, importing, deleting, or repairing the workspace repository itself. Not for qualifying or scoring leads/accounts against saved ICPs/personas.
 ---
 
 # GTM ICP
@@ -11,7 +11,18 @@ Apply this Lifecycle SOP when the requested outcome creates, updates, repairs, o
 
 ## Scope
 
-Own node-local, freeform Markdown ICPs at `icps/<icp-slug>/ICP.md` across creation, refinement, deletion, and repo-wide ICP integrity repair. Read legacy `icps/<icp-slug>.md` artifacts without requiring migration. Do not author persona or member files, manage the workspace lifecycle, or classify/research accounts against saved ICPs.
+Own node-local, freeform Markdown ICPs at `icps/<icp-slug>/ICP.md` across creation, refinement, deletion, and repo-wide ICP integrity repair. Create and fully research ICPs with the shared company-data contract, interpreted as desired or accepted account criteria. Read legacy `icps/<icp-slug>.md` artifacts without requiring migration. Do not author persona or member files, manage the workspace lifecycle, or classify/research accounts against saved ICPs.
+
+**Contract**
+
+| Field | Public contract |
+| --- | --- |
+| Reads | Accepted ICP facts and uncertainty, the root-to-owner `ORG.md` chain, owner-local ICPs, and safe supplied sources |
+| Writes | Only the selected owner's canonical ICP path, or scoped ICP repairs during doctor |
+| Outputs | An accepted node-owned ICP and qualified label, a complete health report, or a scoped handoff |
+| Approval | The user accepts the complete bytes and exact path operation before any durable write or deletion |
+| Persists | Accepted ICP files in `main` Git history; no hidden coordination state |
+| Handoff | `gtm-workspace` for repository structure or connections, `gtm-persona` for buyers, and `gtm-workflow` for saved operational work |
 
 ## Inputs
 
@@ -44,11 +55,13 @@ If no valid workspace is connected or discoverable, stop without writing and dir
 
 - Begin every question-bearing message with its single bold question without `AskUserQuestion`; put context and numbered choices below it, mark at most option 1 `(Recommended)`, and end choices exactly `Reply with a number, or type your answer.`
 - Preserve every supplied qualification, disqualifier, and uncertainty; organization facts and adjacent ICPs are a factual ceiling, never evidence for invented ICP claims.
+- Keep all 13 company-data fields in the required order for every new or fully researched `ICP.md`; write `Unknown` instead of inventing or dropping unresolved criteria.
 - Preview complete accepted bytes and exact path operations before writing, create new ICPs only at the canonical nested path, preserve legacy reads and node-local visibility, and mutate only ICP paths.
 - Keep accepted changes on `main`, stage only accepted ICP paths, inspect the staged diff, and describe a verified durable result as “saved to history.”
 
 ## References
 
 - Read [the ICP contract](references/contract.md) for every flow; it defines workspace resolution, ownership, visibility, content, acceptance, safety, and persistence.
+- Read [the shared company-data research contract](../gtm-workspace/references/company-data.md) before creating or fully researching an ICP; apply its ordered fields as desired or accepted account criteria.
 - Read [the ICP lifecycle flows](references/flows.md) after selecting the Procedure row; they define menu, create, update, delete, doctor, recovery, and closure.
 - Render [the ICP draft template](templates/icp.md) only for create; it is a starting shape, not a schema or validity test.

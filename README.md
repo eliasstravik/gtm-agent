@@ -2,7 +2,7 @@
 
 <h3 align="center">Maintain your GTM workspace from one Slack agent</h3>
 
-<p align="center">GTM Agent lets your team maintain its organization, ICPs, personas, members, suborganizations, and saved GTM workflows through four open source GTM skills in Slack, backed by one optional Git workspace and the workspace's own Turso database.</p>
+<p align="center">GTM Agent lets your team maintain its organization, ICPs, personas, members, suborganizations, and saved GTM workflows through five open source GTM skills in Slack, backed by one optional Git workspace and the workspace's own Turso database.</p>
 
 <p align="center"><img src="assets/gtm-agent-slack-hero.png" width="88%" alt="A teammate asks GTM Agent in Slack to work with shared organization and ICP information from the connected GTM workspace." /></p>
 
@@ -26,7 +26,7 @@ A teammate asks for the outcome in a channel or DM. GTM Agent selects the worksp
 | | **GTM Agent** | Repeated prompts | Standalone templates | Generic AI chat |
 |---|:---:|:---:|:---:|:---:|
 | **Ships as a ready-to-deploy Eve Slack agent** | ✅ | ❌ | ❌ | ❌ |
-| **Includes the exact four GTM Skills** | ✅ | ❌ | ❌ | ❌ |
+| **Includes the exact five GTM Skills** | ✅ | ❌ | ❌ | ❌ |
 | **Pins one workspace repository at deployment** | ✅ | ❌ | ❌ | ❌ |
 | **Keeps connector tokens out of sandbox commands** | ✅ | ❌ | ❌ | ❌ |
 | **Uses native approval for workspace writes** | ✅ | ❌ | ❌ | ❌ |
@@ -42,13 +42,13 @@ GTM Agent arrives as a deliberately narrow Eve template: one Slack interface, on
 
 ### 📈 Run the GTM work where the request appears
 
-Ask for workspace, ICP, persona, or workflow lifecycle work in Slack without sending the team into a separate GTM application.
+Ask for workspace, ICP, persona, or workflow lifecycle work, or an in-session prospect qualification, in Slack without sending the team into a separate GTM application.
 
 ### ⚙️ Build and run reusable GTM workflows
 
 Create, update, inspect, delete, or run a saved workflow. Each workflow declares a typed result table, commits its migrations, and upserts rows by a stable key. The sandbox authors and dry-runs; real runs happen on a Git-connected Vercel workflow project, always with a zero-spend dry run, a checkpoint before real spend, and an approval-gated cancel.
 
-### ⚡ Use one agent for four focused jobs
+### ⚡ Use one agent for five focused jobs
 
 The agent routes each request to a named workflow instead of relying on one giant prompt to improvise the method.
 

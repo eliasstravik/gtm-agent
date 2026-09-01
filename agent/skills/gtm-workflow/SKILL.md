@@ -1,6 +1,6 @@
 ---
 name: gtm-workflow
-description: Triggers when a user wants to create, update, inspect, delete, run, approve, query, schedule, trigger, or deploy a saved GTM workflow in a GTM workspace, including typed result tables, paid provider or model calls, dry runs, checkpoints, webhooks, and Vercel Workflows. Not for creating or repairing the workspace itself, ICP or persona lifecycle work, other workflow engines, or one-off calls that are not saved as workflows.
+description: Triggers when a user wants to create, update, inspect, delete, run, approve, query, schedule, trigger, or deploy a saved GTM workflow in a GTM workspace, including typed result tables, paid provider or model calls, dry runs, checkpoints, authorized triggers, and hosted workflows. Not for creating or repairing the workspace itself, ICP or persona lifecycle work, other workflow engines, or one-off calls that are not saved as workflows.
 ---
 
 # GTM workflow
@@ -12,6 +12,17 @@ Apply this Lifecycle SOP when a request creates, updates, inspects, deletes, run
 ## Scope
 
 Own the root `workflows/` Nitro project, its managed workflows, typed tables, migrations, paid-call cache and ledger, local or Vercel runtime, native inspection tools, and deployment metadata. `gtm-workspace`, `gtm-icp`, and `gtm-persona` own their respective lifecycles.
+
+**Contract**
+
+| Field | Public contract |
+| --- | --- |
+| Reads | Accepted intent, workspace ownership and context files, current workflow code, supplied rows, environment-held credentials, caps, and deployment metadata |
+| Writes | The root workflow project, workflow-owned tables and adapters, committed migrations, and database rows created by accepted runs |
+| Outputs | An accepted workflow change, validation or deployment state, inspection result, or database-backed run outcome |
+| Approval | The user accepts tracked changes, production effect, real spend, external writes, checkpoint continuation, destruction, and credential entry |
+| Persists | Source and migrations in `main` Git history; results, cache, ledger, and run index in the database; retained execution traces in the runtime |
+| Handoff | `gtm-workspace` for repository structure or connections, `gtm-icp` for market definitions, and `gtm-persona` for buyer definitions |
 
 ## Inputs
 
@@ -45,7 +56,8 @@ Report a run still active after the bounded poll so `gtm runs get` can retrieve 
 ## QC
 
 - Secrets never appear in prompts, tracked files, conversation, or command output; values move from `.env` through the shell only.
-- Compare every `// gtm-lib v9` header with the template before an action. Offer a recopy when versions differ and never apply it silently.
+- Before editing any workflow or managed library file, read the pinned runtime's bundled documentation under `workflows/node_modules/workflow/docs/`; assume prior SDK knowledge is outdated.
+- Run `gtm check` and compare every `// gtm-lib v11` header and recorded content hash before an action. Show locally modified diffs, offer a recopy, and never apply it silently.
 - Copy the versioned lib, routes, scripts, and config verbatim and edit workflow-owned tables, adapters, migrations, and workflow files instead.
 - Route every paid vendor call through `provider()` and every model call through `agent()`.
 - Use committed migrations. The project has no `db:push` command.
