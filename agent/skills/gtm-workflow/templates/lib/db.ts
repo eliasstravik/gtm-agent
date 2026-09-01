@@ -1,20 +1,17 @@
-// gtm-lib v9
+// gtm-lib v11
 import {
   createClient as createWebClient,
   type Client,
 } from "@libsql/client/web";
-import {
-  and,
-  eq,
-  getTableColumns,
-  or,
-  sql,
-} from "drizzle-orm";
+import { and, eq, getTableColumns, or, sql } from "drizzle-orm";
 import type { LibSQLDatabase } from "drizzle-orm/libsql/driver-core";
 import { drizzle as drizzleWeb } from "drizzle-orm/libsql/web";
 import { getRun } from "workflow/api";
+import { WorkflowRunFailedError } from "workflow/errors";
 import { getDatabaseConfig } from "./db-url";
+import { redact } from "./redact";
 import {
+  enrichmentRuns,
   workflowRuns,
   type WorkflowRunInsert,
   type WorkflowRunRow,
@@ -84,21 +81,37 @@ export async function upsertRows(
     throw new Error("A workflow table must declare an updated_at column.");
   }
 
-  const set = Object.fromEntries(
-    Object.entries(columns)
-      .filter(([property]) => property !== "key")
-      .map(([property, column]) => [
-        property,
-        sql.raw(`excluded."${column.name.replaceAll('"', '""')}"`),
-      ]),
-  );
-  const chunkSize = Math.max(1, Math.floor(900 / Object.keys(columns).length));
+  const groups = new Map<string, Record<string, unknown>[]>();
+  for (const row of rows) {
+    const properties = Object.keys(row)
+      .filter((property) => property in columns)
+      .sort();
+    if (!properties.includes("key")) throw new Error("Every upsert row must include key.");
+    if (!properties.includes("updatedAt")) {
+      throw new Error("Every upsert row must include updatedAt.");
+    }
+    const signature = properties.join("\u0000");
+    groups.set(signature, [...(groups.get(signature) ?? []), row]);
+  }
+
   const db = await getDb();
-  for (let index = 0; index < rows.length; index += chunkSize) {
-    await db
-      .insert(table)
-      .values(rows.slice(index, index + chunkSize))
-      .onConflictDoUpdate({ target: key, set });
+  for (const [signature, group] of groups) {
+    const properties = signature.split("\u0000");
+    const set = Object.fromEntries(
+      properties
+        .filter((property) => property !== "key")
+        .map((property) => {
+          const column = columns[property];
+          return [property, sql.raw(`excluded."${column.name.replaceAll('"', '""')}"`)];
+        }),
+    );
+    const chunkSize = Math.max(1, Math.floor(900 / properties.length));
+    for (let index = 0; index < group.length; index += chunkSize) {
+      await db
+        .insert(table)
+        .values(group.slice(index, index + chunkSize))
+        .onConflictDoUpdate({ target: key, set });
+    }
   }
   return rows.length;
 }
@@ -113,7 +126,13 @@ export async function updateRunPlain(
   patch: Partial<Omit<WorkflowRunInsert, "runKey">>,
 ): Promise<void> {
   const db = await getDb();
-  await db.update(workflowRuns).set(patch).where(eq(workflowRuns.runKey, runKey));
+  const safePatch = {
+    ...patch,
+    ...(patch.error !== undefined && patch.error !== null
+      ? { error: redact(patch.error) }
+      : {}),
+  };
+  await db.update(workflowRuns).set(safePatch).where(eq(workflowRuns.runKey, runKey));
 }
 
 export async function findLiveRun(
@@ -130,6 +149,25 @@ export async function findLiveRun(
           eq(workflowRuns.path, path),
           eq(workflowRuns.inputHash, inputHash),
           sql`${workflowRuns.finishedAt} IS NULL`,
+        ),
+      )
+      .limit(1)
+  )[0];
+}
+
+export async function findScheduledRun(
+  path: string,
+  scheduledFor: string,
+): Promise<WorkflowRunRow | undefined> {
+  const db = await getDb();
+  return (
+    await db
+      .select()
+      .from(workflowRuns)
+      .where(
+        and(
+          eq(workflowRuns.path, path),
+          eq(workflowRuns.scheduledFor, scheduledFor),
         ),
       )
       .limit(1)
@@ -154,17 +192,112 @@ export async function getRunRow(
   )[0];
 }
 
+export async function getRunCostSources(runKey: string) {
+  const db = await getDb();
+  return db
+    .select({
+      source: enrichmentRuns.costSource,
+      calls: sql<number>`count(*)`,
+      costUsd: sql<number>`coalesce(sum(${enrichmentRuns.costUsd}), 0)`,
+    })
+    .from(enrichmentRuns)
+    .where(eq(enrichmentRuns.runKey, runKey))
+    .groupBy(enrichmentRuns.costSource);
+}
+
+export type RunLedgerSummary = {
+  success: number;
+  empty: number;
+  failed: number;
+  cacheHits: number;
+  pending: number;
+  lost: number;
+  activeStep: string | null;
+  costSources: { source: string; calls: number; costUsd: number }[];
+};
+
+export async function getRunLedgerSummary(runKey: string): Promise<RunLedgerSummary> {
+  const db = await getDb();
+  const rows = await db
+    .select({
+      rowKey: enrichmentRuns.rowKey,
+      step: enrichmentRuns.step,
+      status: enrichmentRuns.status,
+      source: enrichmentRuns.costSource,
+      costUsd: enrichmentRuns.costUsd,
+    })
+    .from(enrichmentRuns)
+    .where(eq(enrichmentRuns.runKey, runKey));
+
+  const keyed = new Map<string, Set<string>>();
+  const unkeyed: Record<string, number> = {};
+  const costSources = new Map<string, { calls: number; costUsd: number }>();
+  let cacheHits = 0;
+  let pending = 0;
+  let lost = 0;
+  let activeStep: string | null = null;
+  for (const row of rows) {
+    if (row.rowKey) {
+      const statuses = keyed.get(row.rowKey) ?? new Set<string>();
+      statuses.add(row.status);
+      keyed.set(row.rowKey, statuses);
+    } else {
+      unkeyed[row.status] = (unkeyed[row.status] ?? 0) + 1;
+    }
+    if (row.status === "cache_hit") cacheHits += 1;
+    if (row.status === "pending") {
+      pending += 1;
+      activeStep ??= row.step;
+    }
+    if (row.status === "lost") lost += 1;
+    const source = costSources.get(row.source) ?? { calls: 0, costUsd: 0 };
+    source.calls += 1;
+    source.costUsd += Number(row.costUsd ?? 0);
+    costSources.set(row.source, source);
+  }
+
+  let success = 0;
+  let empty = 0;
+  let failed = 0;
+  for (const statuses of keyed.values()) {
+    if (statuses.has("error") || statuses.has("lost")) failed += 1;
+    else if (statuses.has("success") || statuses.has("cache_hit")) success += 1;
+    else if (statuses.has("empty")) empty += 1;
+  }
+  success += (unkeyed.success ?? 0) + (unkeyed.cache_hit ?? 0);
+  empty += unkeyed.empty ?? 0;
+  failed += (unkeyed.error ?? 0) + (unkeyed.lost ?? 0);
+
+  return {
+    success,
+    empty,
+    failed,
+    cacheHits,
+    pending,
+    lost,
+    activeStep,
+    costSources: [...costSources]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([source, values]) => ({ source, ...values })),
+  };
+}
+
 export async function reconcileRun(runKey: string): Promise<WorkflowRunRow> {
-  const row = await getRunRow(runKey);
+  let row = await getRunRow(runKey);
   if (!row) throw new Error(`Unknown run ${runKey}`);
-  if (row.finishedAt !== null || !["running", "waiting"].includes(row.status)) {
+  if (
+    row.finishedAt !== null ||
+    !["running", "waiting", "cancelling"].includes(row.status)
+  ) {
     return row;
   }
 
   const now = Date.now();
   if (!row.runId) {
-    if (now - row.startedAt < 120_000) return row;
-    await updateRunPlain(runKey, {
+    if (now - row.startedAt < 10 * 60_000) return row;
+    row = (await getRunRow(runKey))!;
+    if (row.runId || row.finishedAt !== null) return row;
+    await finishRun(runKey, {
       status: "failed",
       error: "start not recorded",
       finishedAt: now,
@@ -174,7 +307,7 @@ export async function reconcileRun(runKey: string): Promise<WorkflowRunRow> {
 
   const run = getRun(row.runId);
   if (!(await run.exists)) {
-    await updateRunPlain(runKey, {
+    await finishRun(runKey, {
       status: "failed",
       error: "run state expired",
       finishedAt: now,
@@ -183,30 +316,181 @@ export async function reconcileRun(runKey: string): Promise<WorkflowRunRow> {
   }
 
   const sdkStatus = await run.status;
+  if (
+    ["completed", "failed", "cancelled"].includes(sdkStatus) &&
+    row.status === "cancelling" &&
+    (await hasPendingRunCalls(runKey)) &&
+    (row.cancelRequestedAt === null || now - row.cancelRequestedAt < 6 * 60_000)
+  ) {
+    return row;
+  }
   const status: WorkflowStatus | undefined =
-    sdkStatus === "completed"
+    row.status === "cancelling" &&
+    ["completed", "failed", "cancelled"].includes(sdkStatus)
+      ? "cancelled"
+      : sdkStatus === "completed"
       ? "completed"
       : sdkStatus === "failed"
         ? "failed"
         : sdkStatus === "cancelled"
           ? "cancelled"
           : undefined;
-  if (status) {
-    await updateRunPlain(runKey, { status, finishedAt: now });
-    return (await getRunRow(runKey))!;
+  if (!status) return row;
+
+  let error: string | undefined;
+  let failedStep: string | undefined;
+  if (status === "failed") {
+    try {
+      await run.returnValue;
+    } catch (caught) {
+      const cause = WorkflowRunFailedError.is(caught) ? caught.cause : caught;
+      error = redact(cause);
+      failedStep = inferFailedStep(cause);
+    }
   }
-  return row;
+  await finishRun(runKey, {
+    status,
+    ...(error ? { error } : {}),
+    ...(failedStep ? { failedStep } : {}),
+    finishedAt: now,
+  });
+  return (await getRunRow(runKey))!;
+}
+
+async function hasPendingRunCalls(runKey: string): Promise<boolean> {
+  const db = await getDb();
+  return Boolean(
+    (
+      await db
+        .select({ id: enrichmentRuns.id })
+        .from(enrichmentRuns)
+        .where(
+          and(
+            eq(enrichmentRuns.runKey, runKey),
+            eq(enrichmentRuns.status, "pending"),
+          ),
+        )
+        .limit(1)
+    )[0],
+  );
+}
+
+async function finishRun(
+  runKey: string,
+  patch: Partial<Omit<WorkflowRunInsert, "runKey">>,
+) {
+  const db = await getDb();
+  await db
+    .update(enrichmentRuns)
+    .set({
+      status: "lost",
+      errorKind: "lost",
+      error: "paid call outcome unavailable after terminal run",
+    })
+    .where(
+      and(
+        eq(enrichmentRuns.runKey, runKey),
+        eq(enrichmentRuns.status, "pending"),
+      ),
+    );
+  const cost = (
+    await db
+      .select({ costUsd: sql<number>`coalesce(sum(${enrichmentRuns.costUsd}), 0)` })
+      .from(enrichmentRuns)
+      .where(eq(enrichmentRuns.runKey, runKey))
+  )[0];
+  await updateRunPlain(runKey, { ...patch, costUsd: Number(cost?.costUsd ?? 0) });
+}
+
+function inferFailedStep(cause: unknown): string | undefined {
+  if (cause && typeof cause === "object") {
+    const named = (cause as { stepName?: unknown }).stepName;
+    if (typeof named === "string" && named) return named;
+    const stack = (cause as { stack?: unknown }).stack;
+    if (typeof stack === "string") {
+      const match = stack.match(/\bat\s+([A-Za-z_$][\w$]*)\s*\(/);
+      if (match && match[1] !== "Error") return match[1];
+    }
+  }
+  return undefined;
+}
+
+export function assertReadOnlyQuery(query: string): string {
+  const trimmed = query.trim().replace(/;+\s*$/, "");
+  const visible = maskSqlLiteralsAndComments(trimmed);
+  if (!/^\s*(select|with)\b/i.test(visible) || visible.includes(";")) {
+    throw new Error("query accepts one read-only SELECT statement");
+  }
+  const forbidden = [
+    "delete",
+    "update",
+    "insert",
+    "replace",
+    "drop",
+    "alter",
+    "create",
+    "attach",
+    "detach",
+    "pragma",
+    "vacuum",
+    "reindex",
+  ];
+  const match = visible.match(new RegExp(`\\b(${forbidden.join("|")})\\b`, "i"));
+  if (match) throw new Error(`query is read-only; ${match[1].toUpperCase()} is not allowed`);
+  return trimmed;
 }
 
 export async function executeReadOnly(query: string): Promise<Record<string, unknown>[]> {
-  const trimmed = query.trim().replace(/;+\s*$/, "");
-  if (!/^(select|with)\b/i.test(trimmed) || trimmed.includes(";")) {
-    throw new Error("query accepts one read-only SELECT statement");
-  }
+  const statement = assertReadOnlyQuery(query);
   const client = await getClient();
   if (getDatabaseConfig().dialect === "sqlite") {
     await client.execute("PRAGMA query_only=1");
   }
-  const result = await client.execute(trimmed);
+  const result = await client.execute(statement);
   return result.rows.map((row) => ({ ...row }));
+}
+
+function maskSqlLiteralsAndComments(sqlText: string): string {
+  let result = "";
+  let index = 0;
+  while (index < sqlText.length) {
+    const current = sqlText[index];
+    const next = sqlText[index + 1];
+    if (current === "-" && next === "-") {
+      const end = sqlText.indexOf("\n", index + 2);
+      const length = (end < 0 ? sqlText.length : end) - index;
+      result += " ".repeat(length);
+      index += length;
+      continue;
+    }
+    if (current === "/" && next === "*") {
+      const end = sqlText.indexOf("*/", index + 2);
+      const length = (end < 0 ? sqlText.length : end + 2) - index;
+      result += " ".repeat(length);
+      index += length;
+      continue;
+    }
+    if (["'", '"', "`"].includes(current)) {
+      const quote = current;
+      result += " ";
+      index += 1;
+      while (index < sqlText.length) {
+        result += " ";
+        if (sqlText[index] === quote) {
+          if (sqlText[index + 1] === quote) {
+            result += " ";
+            index += 2;
+            continue;
+          }
+          index += 1;
+          break;
+        }
+        index += 1;
+      }
+      continue;
+    }
+    result += current;
+    index += 1;
+  }
+  return result;
 }

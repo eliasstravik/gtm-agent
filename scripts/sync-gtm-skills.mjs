@@ -21,6 +21,7 @@ export const EXPECTED_SOURCE_URL =
 export const EXPECTED_SKILLS = [
   "gtm-icp",
   "gtm-persona",
+  "gtm-qualify-prospects",
   "gtm-workflow",
   "gtm-workspace",
 ];

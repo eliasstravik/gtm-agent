@@ -22,6 +22,7 @@ Reply with a number, or type your answer.
 7. Unless `GTM_SANDBOX=1`, run `npm run db:studio`, report its URL, and name the workflow result table. Studio is a viewer and is local only.
 8. Report both URLs and whether the server remains running. State that open started no workflow and made no paid call.
 
+<!-- TEMPORARY: waits on workflow@5.0.0: replace the internal manifest request when a public manifest command is available. -->
 The embedded UI sends `POST /_workflow/api/rpc` with `Content-Type: application/cbor`. Its CBOR body encodes `{"method":"fetchWorkflowsManifest","params":{"worldEnv":{}}}`.
 
 ## Private remote access
@@ -34,7 +35,7 @@ When the user asks for private remote access, hand the running Nitro origin to t
 2. If either value is absent, report that the project is not deployed and stop. When the user named a workflow, also require its header to say `Runs: on Vercel`; otherwise report that the workflow is not deployed and stop.
 3. Run `./node_modules/.bin/workflow inspect runs --backend vercel --project <project> --team <team> --url` with both recorded values.
 4. Open the printed URL. If it cannot be opened, say `In the Vercel project, open Observability, then Workflows.`
-5. For table inspection, use the Turso dashboard or run `npm run db:studio:cloud` on the user's computer.
+5. For table inspection, use the Turso dashboard or run `npm run db:studio:cloud` on the user's computer. Ignored `.env.turso` contains `TURSO_DATABASE_URL`, write-only `TURSO_AUTH_TOKEN` for migrations, and `TURSO_READ_ONLY_AUTH_TOKEN` for Studio and `gtm query --cloud`; inspection refuses to reuse the write token.
 
 ## Sandbox inspection
 
@@ -51,12 +52,13 @@ npm run gtm -- query --sql "select run_key, status, completed, failed, cost_usd 
 - Record the PID, command, working directory, and purpose for every server this session starts.
 - Stop and confirm exit only for server PIDs this session started. Leave matching servers from other sessions and unrelated processes running.
 - On cancellation, stop only a server this session started.
-- CLI-agent subprocesses belong to Nitro's process group and end on their own or at `timeoutMs`. Cancelling a run with `./node_modules/.bin/workflow cancel` takes effect at the next step boundary.
+- CLI-agent subprocesses belong to Nitro's process group and end on their own or at `timeoutMs`. `npm run gtm -- cancel <runKey> --wait 30` polls `cancelling` until the bound; an adapter using the library signal may stop sooner.
 
 ## Empty workflow recovery
 
 For `Runs visible, Workflows empty`:
 
+<!-- TEMPORARY: waits on workflow@5.0.0: remove the legacy data-directory override after local state resolves without it. -->
 1. Confirm the `dev` script sets `WORKFLOW_EMBEDDED_DATA_DIR` to `node_modules/.nitro/workflow`.
 2. Confirm `node_modules/.nitro/workflow/manifest.json` lists the expected workflows with their `workflows/` definition paths.
 3. Restart the owned Nitro process.

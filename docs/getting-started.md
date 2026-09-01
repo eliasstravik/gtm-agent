@@ -1,6 +1,6 @@
 # Getting started — deploy GTM Agent
 
-GTM Agent is an open-source Eve agent that brings four focused GTM skills into Slack. Deploy it with Slack only, connect one GitHub repository for durable organization, ICP, persona, member, and suborganization workspace content, and optionally add the workspace's own Turso database so the agent can build and run saved GTM workflows.
+GTM Agent is an open-source Eve agent that brings five focused GTM skills into Slack. Deploy it with Slack only, connect one GitHub repository for durable organization, ICP, persona, member, and suborganization workspace content, and optionally add the workspace's own Turso database so the agent can build and run saved GTM workflows.
 
 > [!IMPORTANT]
 > **Breaking deployment change:** when upgrading, rename `GTM_CONTEXT_REPOSITORY` to `GTM_WORKSPACE_REPOSITORY` before redeploying. The former variable is no longer recognized.
