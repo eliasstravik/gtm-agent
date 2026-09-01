@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   CONFIGURATION_ERROR,
+  DEFAULT_AGENT_MODEL,
   SLACK_CONFIGURATION_ERROR,
   SOURCE_CONFIGURATION_ERROR,
   SOURCE_DEPLOYMENT_ERROR,
@@ -11,6 +12,7 @@ import {
   WORKFLOW_CONTROL_CONFIGURATION_ERROR,
   parseConfiguration,
   parseWorkspaceRepository,
+  resolveAgentModel,
 } from "../agent/lib/config.ts";
 
 test("Slack-only mode is valid without GitHub configuration", () => {
@@ -445,5 +447,67 @@ test("provider hosts are exact lowercase hostnames outside the trusted host set"
       /GTM_WORKFLOW_PROVIDER_HOSTS/,
       hosts,
     );
+  }
+});
+
+test("provider hosts reject private, loopback, link-local, and cloud metadata addresses", () => {
+  for (const hosts of [
+    "169.254.169.254",
+    "127.0.0.1",
+    "127.0.0.1,api.example.com",
+    "10.0.0.5",
+    "10.255.255.255",
+    "172.16.0.1",
+    "172.31.255.255",
+    "192.168.1.1",
+    "100.64.0.1",
+    "0.0.0.0",
+    "224.0.0.1",
+    "255.255.255.255",
+    "metadata.google.internal",
+    "metadata.goog",
+    "localhost.localdomain",
+  ]) {
+    assert.throws(
+      () =>
+        parseConfiguration({
+          ...CONNECTED,
+          TURSO_DATABASE_URL: "libsql://acme.turso.io",
+          TURSO_AUTH_TOKEN: "turso-secret",
+          TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
+          GTM_WORKFLOW_PROVIDER_HOSTS: hosts,
+        }),
+      /GTM_WORKFLOW_PROVIDER_HOSTS/,
+      hosts,
+    );
+  }
+
+  assert.deepEqual(
+    parseConfiguration({
+      ...CONNECTED,
+      TURSO_DATABASE_URL: "libsql://acme.turso.io",
+      TURSO_AUTH_TOKEN: "turso-secret",
+      TURSO_READ_ONLY_AUTH_TOKEN: "turso-read-only",
+      GTM_WORKFLOW_PROVIDER_HOSTS: "203.0.113.5,api.example.com",
+    }).workflow.providerHosts,
+    ["203.0.113.5", "api.example.com"],
+  );
+});
+
+test("the agent model defaults to Claude but is overridable via GTM_AGENT_MODEL", () => {
+  const prior = process.env.GTM_AGENT_MODEL;
+  try {
+    delete process.env.GTM_AGENT_MODEL;
+    assert.equal(resolveAgentModel(), DEFAULT_AGENT_MODEL);
+    assert.equal(DEFAULT_AGENT_MODEL, "anthropic/claude-sonnet-5");
+
+    process.env.GTM_AGENT_MODEL = "";
+    assert.equal(resolveAgentModel(), DEFAULT_AGENT_MODEL);
+
+    process.env.GTM_AGENT_MODEL = "openai/gpt-5.6-luna";
+    assert.equal(resolveAgentModel(), "openai/gpt-5.6-luna");
+  } finally {
+    if (prior === undefined) delete process.env.GTM_AGENT_MODEL;
+    else process.env.GTM_AGENT_MODEL = prior;
   }
 });

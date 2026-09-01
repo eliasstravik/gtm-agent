@@ -14,11 +14,15 @@ async function exists(path) {
   }
 }
 
-test("agent selects the approved model and official minimal Slack channel", async () => {
+test("agent selects a configurable, Claude-default model and official minimal Slack channel", async () => {
   const agent = await read("agent/agent.ts");
+  const config = await read("agent/lib/config.ts");
   const slack = await read("agent/channels/slack.ts");
 
-  assert.match(agent, /anthropic\/claude-sonnet-5/);
+  assert.match(agent, /resolveAgentModel\(\)/);
+  assert.doesNotMatch(agent, /"anthropic\/|"openai\//);
+  assert.match(config, /GTM_AGENT_MODEL/);
+  assert.match(config, /DEFAULT_AGENT_MODEL\s*=\s*"anthropic\/claude-sonnet-5"/);
   assert.match(slack, /connectSlackCredentials/);
   assert.match(slack, /slackChannel/);
   assert.match(slack, /getConfiguration/);
@@ -257,6 +261,7 @@ test("source editor is isolated, path-limited, and draft-PR-only", async () => {
 
   assert.match(agent, /defineDynamic/);
   assert.match(agent, /isAllowedSourceCaller/);
+  assert.match(agent, /resolveAgentModel\(\)/);
   assert.match(instructions, /agent\/instructions\.md/);
   assert.match(instructions, /agent\/schedules/);
   assert.match(instructions, /same subagent session/i);
