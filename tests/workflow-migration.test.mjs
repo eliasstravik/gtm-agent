@@ -147,12 +147,16 @@ test("a successful migration command is rejected when the declared hash is absen
 
 test("a baseline restore failure after migration is terminal and never looks like success", async () => {
   let restores = 0;
+  let stops = 0;
   const { sandbox } = fakeSandbox();
   sandbox.setNetworkPolicy = async (policy) => {
     if (policy === baselinePolicy) {
       restores += 1;
       throw new Error("firewall unavailable");
     }
+  };
+  sandbox.stop = async () => {
+    stops += 1;
   };
   await assert.rejects(
     applyAcceptedWorkflowMigrations({
@@ -172,6 +176,54 @@ test("a baseline restore failure after migration is terminal and never looks lik
     },
   );
   assert.equal(restores, 2);
+  assert.equal(stops, 1);
+});
+
+test("a restore failure with no stop() offered still fails safely (bootstrap-session sandboxes)", async () => {
+  const { sandbox } = fakeSandbox();
+  sandbox.setNetworkPolicy = async (policy) => {
+    if (policy === baselinePolicy) throw new Error("firewall unavailable");
+  };
+
+  await assert.rejects(
+    applyAcceptedWorkflowMigrations({
+      baselinePolicy,
+      mutation: mutation([
+        { path: "workflows/drizzle/0002_accounts.sql", content: "alter table accounts add score integer;\n" },
+      ]),
+      sandbox,
+      workspace,
+      writePolicy,
+    }),
+    (error) => error instanceof WorkflowMigrationError,
+  );
+});
+
+test("a stop() failure during a restore failure still surfaces the original egress error", async () => {
+  const { sandbox } = fakeSandbox();
+  sandbox.setNetworkPolicy = async (policy) => {
+    if (policy === baselinePolicy) throw new Error("firewall unavailable");
+  };
+  sandbox.stop = async () => {
+    throw new Error("compute already gone");
+  };
+
+  await assert.rejects(
+    applyAcceptedWorkflowMigrations({
+      baselinePolicy,
+      mutation: mutation([
+        { path: "workflows/drizzle/0002_accounts.sql", content: "alter table accounts add score integer;\n" },
+      ]),
+      sandbox,
+      workspace,
+      writePolicy,
+    }),
+    (error) => {
+      assert.ok(error instanceof WorkflowMigrationError);
+      assert.match(error.message, /egress could not be restored/i);
+      return true;
+    },
+  );
 });
 
 test("a workflow change without migration SQL does not touch the sandbox", async () => {

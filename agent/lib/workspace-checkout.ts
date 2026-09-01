@@ -1,4 +1,5 @@
 import type {
+  RuntimeSandboxSession,
   SandboxCommandResult,
   SandboxNetworkPolicy,
   SandboxSession,
@@ -52,6 +53,15 @@ export class EgressNotClosedError extends Error {
     this.name = "EgressNotClosedError";
   }
 }
+
+/**
+ * A sandbox that can optionally hard-stop its own compute. Only the runtime
+ * session from `ctx.getSandbox()` carries `stop`; the I/O-only session used
+ * during bootstrap checkout hydration does not, so this stays optional
+ * rather than widening every caller's contract.
+ */
+export type StoppableSandbox = Pick<SandboxSession, "setNetworkPolicy"> &
+  Partial<Pick<RuntimeSandboxSession, "stop">>;
 
 export function createGitBasicAuthorization(token: string): string {
   return `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
@@ -197,7 +207,7 @@ export async function refreshWorkspaceCheckout({
   readonly baselinePolicy?: SandboxNetworkPolicy;
   readonly commitSha: string;
   readonly workspace: ConnectedWorkspaceConfiguration;
-  readonly sandbox: Pick<SandboxSession, "run" | "setNetworkPolicy">;
+  readonly sandbox: Pick<SandboxSession, "run"> & StoppableSandbox;
 }): Promise<void> {
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(commitSha)) {
     throw new Error("Refusing to refresh to an invalid Git object ID.");
@@ -363,7 +373,7 @@ function baselineAllowMap(policy: SandboxNetworkPolicy): NetworkAllowMap {
 }
 
 export async function closeSandboxEgress(
-  sandbox: Pick<SandboxSession, "setNetworkPolicy">,
+  sandbox: StoppableSandbox,
   baseline: SandboxNetworkPolicy,
 ): Promise<void> {
   try {
@@ -374,6 +384,12 @@ export async function closeSandboxEgress(
       await sandbox.setNetworkPolicy(baseline);
       return;
     } catch {
+      // The policy could not be restored by any retry: whatever it was
+      // widened to (a credentialed Git host, the Turso write host) stays
+      // reachable. Stopping compute is a hard enforcement of "no more
+      // egress," not advisory; it only runs when the caller holds a runtime
+      // session (`ctx.getSandbox()`), never the bootstrap-time I/O session.
+      await sandbox.stop?.().catch(() => {});
       throw new EgressNotClosedError();
     }
   }

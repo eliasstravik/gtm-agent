@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 import type { SandboxNetworkPolicy, SandboxSession } from "eve/sandbox";
 
 import type { ConnectedWorkspaceConfiguration } from "./config.ts";
-import { EgressNotClosedError, closeSandboxEgress } from "./workspace-checkout.ts";
+import {
+  EgressNotClosedError,
+  closeSandboxEgress,
+  type StoppableSandbox,
+} from "./workspace-checkout.ts";
 import type { WorkspaceMutation } from "./workspace-paths.ts";
 
 const MIGRATION_PATTERN = /^workflows\/drizzle\/[^/]+\.sql$/;
@@ -38,8 +42,9 @@ export async function applyAcceptedWorkflowMigrations({
   readonly mutation: WorkspaceMutation;
   readonly sandbox: Pick<
     SandboxSession,
-    "removePath" | "run" | "setNetworkPolicy" | "writeTextFile"
-  >;
+    "removePath" | "run" | "writeTextFile"
+  > &
+    StoppableSandbox;
   readonly workspace: ConnectedWorkspaceConfiguration;
   readonly writePolicy: SandboxNetworkPolicy;
 }): Promise<boolean> {

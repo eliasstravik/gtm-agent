@@ -2,6 +2,19 @@ import { AI_GATEWAY_HOST, NPM_REGISTRY_HOST } from "./workflow-session.ts";
 
 export const WORKSPACE_BRANCH = "main" as const;
 
+/** Default AI Gateway model ID for the root agent and the source-editor subagent. */
+export const DEFAULT_AGENT_MODEL = "anthropic/claude-sonnet-5";
+
+/**
+ * The AI Gateway model ID for the root agent and the source-editor subagent.
+ * A single override keeps both roles on the same provider by default, since
+ * running them on different, separately-untested providers is itself a risk
+ * (prompt-level rules tuned against one model may not hold on another).
+ */
+export function resolveAgentModel(): string {
+  return present(process.env.GTM_AGENT_MODEL) ?? DEFAULT_AGENT_MODEL;
+}
+
 export const CONFIGURATION_ERROR =
   "GitHub workspace configuration is incomplete: set both GITHUB_CONNECTOR and GTM_WORKSPACE_REPOSITORY, or unset both for Slack-only mode.";
 export const SLACK_CONFIGURATION_ERROR =
@@ -42,6 +55,40 @@ const RESERVED_PROVIDER_HOSTS: ReadonlySet<string> = new Set([
   NPM_REGISTRY_HOST,
   AI_GATEWAY_HOST,
 ]);
+/** Non-IP-literal hostnames that alias cloud metadata endpoints or the local host. */
+const FORBIDDEN_PROVIDER_HOSTNAMES: ReadonlySet<string> = new Set([
+  "localhost",
+  "localhost.localdomain",
+  "metadata.google.internal",
+  "metadata.goog",
+]);
+
+/**
+ * Rejects IPv4 literals in loopback, RFC1918 private, link-local (which
+ * covers the AWS/GCP/Azure metadata address 169.254.169.254), CGNAT, "this
+ * network", and multicast/reserved space. A provider host is meant to be a
+ * public, uncredentialed endpoint; the sandbox firewall would otherwise open
+ * a route to internal infrastructure for any deployer who misconfigures this
+ * value. IPv6 literals need no separate check: they contain a colon, which
+ * HOSTNAME_PATTERN already rejects.
+ */
+function isForbiddenProviderIpv4(host: string): boolean {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!match) return false;
+  const octets = match.slice(1).map(Number);
+  if (octets.some((octet) => octet > 255)) return false;
+  const [a, b] = octets;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    a >= 224
+  );
+}
 
 export type WorkspaceRepository = {
   readonly owner: string;
@@ -346,6 +393,8 @@ function parseProviderHosts(
     if (
       !HOSTNAME_PATTERN.test(host) ||
       RESERVED_PROVIDER_HOSTS.has(host) ||
+      FORBIDDEN_PROVIDER_HOSTNAMES.has(host) ||
+      isForbiddenProviderIpv4(host) ||
       host === databaseHost
     ) {
       throw new Error(
