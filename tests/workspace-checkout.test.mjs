@@ -560,3 +560,85 @@ test("verification refuses brokered workflow secrets in the session environment"
   assert.equal(variables.includes("TURSO_DATABASE_URL"), false);
   assert.equal(variables.includes("AI_GATEWAY_API_KEY"), false);
 });
+
+test("mutation preflight refuses a non-scaffold write until root ORG.md exists", async () => {
+  const commands = [];
+  const sandbox = {
+    async run(input) {
+      commands.push(input.command);
+      return { exitCode: 0, stderr: "", stdout: "" };
+    },
+  };
+  await assertWorkspaceCheckoutReady({
+    workspace,
+    expectedHead: "d".repeat(40),
+    paths: ["icps/enterprise/ICP.md"],
+    sandbox,
+  });
+  assert.match(commands[0], /fail UNINITIALIZED/);
+  assert.match(commands[0], /test -f "\$repo_dir\/ORG\.md" \|\| test -f "\$repo_dir\/org\.md"/);
+
+  await assertWorkspaceCheckoutReady({
+    workspace,
+    expectedHead: "d".repeat(40),
+    paths: ["ORG.md", "AGENTS.md", "CLAUDE.md", ".gitignore"],
+    initializing: true,
+    sandbox,
+  });
+  assert.doesNotMatch(commands[1], /UNINITIALIZED/);
+});
+
+test("real Git preflight rejects an ordinary write to a README-only checkout and accepts the scaffold", async () => {
+  const temporaryRoot = await mkdtemp(
+    join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "gtm-workspace-unset-preflight-"),
+  );
+  const repository = join(temporaryRoot, "repository");
+  const fixtureWorkspace = {
+    ...workspace,
+    checkoutDirectory: repository,
+    staleMarker: join(temporaryRoot, ".stale"),
+  };
+  const sandbox = {
+    async run({ command }) {
+      const result = spawnSync("bash", ["-c", command], {
+        encoding: "utf8",
+        env: { HOME: temporaryRoot, PATH: process.env.PATH },
+      });
+      return {
+        exitCode: result.status ?? 1,
+        stderr: result.stderr,
+        stdout: result.stdout,
+      };
+    },
+  };
+
+  try {
+    await mkdir(repository, { recursive: true });
+    git(repository, ["init", "--initial-branch=main"]);
+    git(repository, ["config", "user.email", "fixture@example.test"]);
+    git(repository, ["config", "user.name", "Fixture"]);
+    await writeFile(join(repository, "README.md"), "# Workspace\n", "utf8");
+    git(repository, ["add", "README.md"]);
+    git(repository, ["commit", "-m", "Initial commit"]);
+    const head = git(repository, ["rev-parse", "HEAD"]);
+
+    await assert.rejects(
+      assertWorkspaceCheckoutReady({
+        workspace: fixtureWorkspace,
+        expectedHead: head,
+        paths: ["icps/enterprise/ICP.md"],
+        sandbox,
+      }),
+      /not set up yet/i,
+    );
+    await assertWorkspaceCheckoutReady({
+      workspace: fixtureWorkspace,
+      expectedHead: head,
+      paths: ["ORG.md", "AGENTS.md", "CLAUDE.md", ".gitignore"],
+      initializing: true,
+      sandbox,
+    });
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});

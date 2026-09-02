@@ -190,15 +190,22 @@ export async function assertWorkspaceCheckoutReady({
   expectedHead,
   paths,
   sandbox,
+  initializing = false,
 }: {
   readonly workspace: ConnectedWorkspaceConfiguration;
   readonly expectedHead: string;
   readonly paths: readonly string[];
   readonly sandbox: Pick<SandboxSession, "run">;
+  /**
+   * True when the mutation writes root `ORG.md`. Only such a mutation may
+   * touch a checkout that has no organization file yet, so the first saved
+   * change on a README-only repository is always the workspace scaffold.
+   */
+  readonly initializing?: boolean;
 }): Promise<void> {
   const result = await runSandboxCommand(
     sandbox,
-    createMutationPreflightCommand(workspace, expectedHead, paths),
+    createMutationPreflightCommand(workspace, expectedHead, paths, initializing),
   );
   assertPreflightSucceeded(result);
 }
@@ -322,12 +329,16 @@ function createMutationPreflightCommand(
   workspace: ConnectedWorkspaceConfiguration,
   expectedHead: string,
   paths: readonly string[],
+  initializing: boolean,
 ): string {
   const symlinkChecks = paths
     .flatMap((path) => pathPrefixes(path))
     .filter((path, index, all) => all.indexOf(path) === index)
     .map((path) => `test ! -L "$repo_dir/${path}"`)
     .join("\n");
+  const organizationCheck = initializing
+    ? ""
+    : `test -f "$repo_dir/ORG.md" || test -f "$repo_dir/org.md" || fail UNINITIALIZED\n`;
 
   return `set -euo pipefail
 repo_dir="${workspace.checkoutDirectory}"
@@ -336,7 +347,7 @@ test ! -e "${workspace.staleMarker}" || fail STALE
 test -z "$(git -C "$repo_dir" status --porcelain)" || fail DIRTY
 test "$(git -C "$repo_dir" branch --show-current)" = "${workspace.branch}" || fail WRONG_BRANCH
 test "$(git -C "$repo_dir" rev-parse HEAD)" = "${expectedHead}" || fail WRONG_HEAD
-${symlinkChecks}`;
+${organizationCheck}${symlinkChecks}`;
 }
 
 function pathPrefixes(path: string): string[] {
@@ -402,6 +413,8 @@ function assertPreflightSucceeded(result: SandboxCommandResult): void {
   const messages: Readonly<Record<string, string>> = {
     DIRTY: "The session checkout has uncommitted or untracked files.",
     STALE: "The session checkout is stale after a prior refresh failure.",
+    UNINITIALIZED:
+      "The connected workspace is not set up yet: the first saved change must write root ORG.md. Run the gtm-workspace create flow for the connected repository.",
     WRONG_BRANCH: "The session checkout is not on the configured main branch.",
     WRONG_HEAD: "The session checkout no longer matches the approved base commit.",
   };
