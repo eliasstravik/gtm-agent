@@ -10,6 +10,7 @@ import {
   SOURCE_REPOSITORY_ERROR,
   WORKFLOW_CONFIGURATION_ERROR,
   WORKFLOW_CONTROL_CONFIGURATION_ERROR,
+  WORKSPACE_REPOSITORY_SELF_ERROR,
   parseConfiguration,
   parseWorkspaceRepository,
   resolveAgentModel,
@@ -133,6 +134,53 @@ test("partial GitHub configuration fails with one remediation", () => {
         GTM_WORKSPACE_REPOSITORY: "acme-inc/gtm-workspace",
       }),
     /set both GITHUB_CONNECTOR and GTM_WORKSPACE_REPOSITORY/i,
+  );
+});
+
+test("the workspace repository must not name the agent's own source repository", () => {
+  const selfError = new RegExp(
+    WORKSPACE_REPOSITORY_SELF_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
+
+  assert.throws(
+    () =>
+      parseConfiguration({
+        SLACK_CONNECTOR: "slack/gtm-agent",
+        GITHUB_CONNECTOR: "github/gtm-agent",
+        GTM_WORKSPACE_REPOSITORY: "acme-inc/eve-agent",
+        EVE_SOURCE_GITHUB_CONNECTOR: "github/eve-source",
+        EVE_SOURCE_REPOSITORY: "acme-inc/eve-agent",
+        EVE_SOURCE_ALLOWED_SLACK_USER_IDS: "U012345678",
+        EVE_SOURCE_DEPLOYED_SHA: "a".repeat(40),
+      }),
+    selfError,
+  );
+
+  assert.throws(
+    () =>
+      parseConfiguration({
+        SLACK_CONNECTOR: "slack/gtm-agent",
+        GITHUB_CONNECTOR: "github/gtm-agent",
+        GTM_WORKSPACE_REPOSITORY: "Acme-Inc/Eve-Agent",
+        VERCEL_GIT_REPO_OWNER_SLUG: "acme-inc",
+        VERCEL_GIT_REPO_SLUG: "eve-agent",
+      }),
+    selfError,
+  );
+
+  assert.equal(
+    parseConfiguration({
+      SLACK_CONNECTOR: "slack/gtm-agent",
+      GITHUB_CONNECTOR: "github/gtm-agent",
+      GTM_WORKSPACE_REPOSITORY: "acme-inc/gtm-workspace",
+      EVE_SOURCE_GITHUB_CONNECTOR: "github/eve-source",
+      EVE_SOURCE_REPOSITORY: "acme-inc/eve-agent",
+      EVE_SOURCE_ALLOWED_SLACK_USER_IDS: "U012345678",
+      EVE_SOURCE_DEPLOYED_SHA: "a".repeat(40),
+      VERCEL_GIT_REPO_OWNER_SLUG: "acme-inc",
+      VERCEL_GIT_REPO_SLUG: "eve-agent",
+    }).workspace.repository,
+    "acme-inc/gtm-workspace",
   );
 });
 

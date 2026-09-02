@@ -17,6 +17,8 @@ export function resolveAgentModel(): string {
 
 export const CONFIGURATION_ERROR =
   "GitHub workspace configuration is incomplete: set both GITHUB_CONNECTOR and GTM_WORKSPACE_REPOSITORY, or unset both for Slack-only mode.";
+export const WORKSPACE_REPOSITORY_SELF_ERROR =
+  "GTM_WORKSPACE_REPOSITORY must not name the agent's own source repository; point it at the separate GTM workspace repository.";
 export const SLACK_CONFIGURATION_ERROR =
   "SLACK_CONNECTOR must be set to the deployment's Vercel Connect Slack connector.";
 export const WORKFLOW_CONFIGURATION_ERROR =
@@ -175,6 +177,13 @@ export function parseConfiguration(
     throw new Error(CONFIGURATION_ERROR);
   }
 
+  if (
+    repositoryValue !== undefined &&
+    namesOwnRepository(environment, source, repositoryValue)
+  ) {
+    throw new Error(WORKSPACE_REPOSITORY_SELF_ERROR);
+  }
+
   if (connector === undefined || repositoryValue === undefined) {
     const workflow = parseWorkflowConfiguration(environment, false);
     return {
@@ -207,6 +216,31 @@ export function parseConfiguration(
       staleMarker: `$HOME/.gtm/.${repository.repo}.stale`,
     },
   };
+}
+
+/**
+ * True when `GTM_WORKSPACE_REPOSITORY` names the repository this agent is
+ * built from. The workspace repository holds client GTM content and receives
+ * approval-gated commits on `main`; pointing it at the agent's own source
+ * would let a saved workspace scaffold overwrite the agent's contract files.
+ * Both identities are compared case-insensitively, because GitHub treats
+ * owner and repository names that way.
+ */
+function namesOwnRepository(
+  environment: Readonly<Record<string, string | undefined>>,
+  source: SourceProposalConfiguration | null,
+  repositoryValue: string,
+): boolean {
+  const target = repositoryValue.toLowerCase();
+  if (source !== null && source.repository.toLowerCase() === target) return true;
+
+  const deployedOwner = present(environment.VERCEL_GIT_REPO_OWNER_SLUG);
+  const deployedRepo = present(environment.VERCEL_GIT_REPO_SLUG);
+  return (
+    deployedOwner !== undefined &&
+    deployedRepo !== undefined &&
+    `${deployedOwner}/${deployedRepo}`.toLowerCase() === target
+  );
 }
 
 function parseSourceProposalConfiguration(
