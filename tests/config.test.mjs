@@ -640,18 +640,18 @@ test("provider hosts reject private, loopback, link-local, and cloud metadata ad
   );
 });
 
-test("the agent model defaults to Claude but is overridable via GTM_AGENT_MODEL", () => {
+test("the agent model defaults to GPT but is overridable via GTM_AGENT_MODEL", () => {
   const prior = process.env.GTM_AGENT_MODEL;
   try {
     delete process.env.GTM_AGENT_MODEL;
     assert.equal(resolveAgentModel(), DEFAULT_AGENT_MODEL);
-    assert.equal(DEFAULT_AGENT_MODEL, "anthropic/claude-sonnet-5");
+    assert.equal(DEFAULT_AGENT_MODEL, "openai/gpt-5.6-sol");
 
     process.env.GTM_AGENT_MODEL = "";
     assert.equal(resolveAgentModel(), DEFAULT_AGENT_MODEL);
 
-    process.env.GTM_AGENT_MODEL = "openai/gpt-5.6-luna";
-    assert.equal(resolveAgentModel(), "openai/gpt-5.6-luna");
+    process.env.GTM_AGENT_MODEL = "anthropic/claude-sonnet-5";
+    assert.equal(resolveAgentModel(), "anthropic/claude-sonnet-5");
   } finally {
     if (prior === undefined) delete process.env.GTM_AGENT_MODEL;
     else process.env.GTM_AGENT_MODEL = prior;

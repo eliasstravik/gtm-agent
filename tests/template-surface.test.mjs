@@ -14,7 +14,7 @@ async function exists(path) {
   }
 }
 
-test("agent selects a configurable, Claude-default model and official minimal Slack channel", async () => {
+test("agent selects a configurable, GPT-default model and official minimal Slack channel", async () => {
   const agent = await read("agent/agent.ts");
   const config = await read("agent/lib/config.ts");
   const slack = await read("agent/channels/slack.ts");
@@ -22,7 +22,7 @@ test("agent selects a configurable, Claude-default model and official minimal Sl
   assert.match(agent, /resolveAgentModel\(\)/);
   assert.doesNotMatch(agent, /"anthropic\/|"openai\//);
   assert.match(config, /GTM_AGENT_MODEL/);
-  assert.match(config, /DEFAULT_AGENT_MODEL\s*=\s*"anthropic\/claude-sonnet-5"/);
+  assert.match(config, /DEFAULT_AGENT_MODEL\s*=\s*"openai\/gpt-5.6-sol"/);
   assert.match(slack, /connectSlackCredentials/);
   assert.match(slack, /slackChannel/);
   assert.match(slack, /getConfiguration/);
