@@ -4,13 +4,14 @@ GTM Agent is an open-source Eve agent that brings five focused GTM skills into S
 
 > [!IMPORTANT]
 > **Breaking deployment change:** when upgrading, rename `GTM_CONTEXT_REPOSITORY` to `GTM_WORKSPACE_REPOSITORY` before redeploying. The former variable is no longer recognized.
+> Production also requires `GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS` and `GTM_AGENT_ALLOWED_SLACK_USER_IDS`. An empty or invalid allowlist stops startup.
 
 ## 1. Check the prerequisites
 
 You need:
 
 - A Vercel account with Eve/Workflow, Vercel Sandbox, Connect, and AI Gateway available
-- A Slack workspace where you can install the generated app
+- A Slack workspace where you can install the generated app, plus the exact IDs of every channel and person allowed to use it
 - For workspace mode, one GitHub repository with a `main` branch that has at least one commit. A new private repository created with "Add a README file" ticked is enough: the agent sets up the workspace from Slack. An existing workspace with root `ORG.md`, or a legacy root `org.md` that the agent can migrate, also works
 - For workflow hosting, one Turso database dedicated to that workspace (the Vercel Marketplace Turso integration works) plus a read-only token for it; model calls happen on the workflow project with its own budgeted Vercel AI Gateway key
 
@@ -20,9 +21,9 @@ The agent repository and the workspace repository are different things. This rep
 
 ### Recommended — Slack with one GTM workspace repository
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?project-name=gtm-agent&repository-name=gtm-agent&repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D&env=GTM_WORKSPACE_REPOSITORY&envDescription=Use%20one%20owner%2Frepo%20GitHub%20repository%20for%20a%20durable%20GTM%20workspace.)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?project-name=gtm-agent&repository-name=gtm-agent&repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D&env=GTM_WORKSPACE_REPOSITORY&env=GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS&env=GTM_AGENT_ALLOWED_SLACK_USER_IDS&envDescription=Set%20the%20workspace%20repository%20and%20the%20exact%20Slack%20channel%20and%20user%20allowlists.)
 
-The button creates the Vercel project, connects Slack, and asks for `GTM_WORKSPACE_REPOSITORY` in exact `owner/repo` form.
+The button creates the Vercel project, connects Slack, and asks for the workspace repository plus both Slack allowlists.
 
 GitHub connector creation cannot currently be guaranteed by the Deploy Button without a trigger. After deployment:
 
@@ -39,9 +40,19 @@ GitHub connector creation cannot currently be guaranteed by the Deploy Button wi
 
 ### Minimal — Slack only
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?project-name=gtm-agent&repository-name=gtm-agent&repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?project-name=gtm-agent&repository-name=gtm-agent&repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D&env=GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS&env=GTM_AGENT_ALLOWED_SLACK_USER_IDS&envDescription=Set%20the%20comma-separated%20exact%20Slack%20channel%20and%20user%20allowlists.)
 
 Leave `GITHUB_CONNECTOR` and `GTM_WORKSPACE_REPOSITORY` unset. The agent can load the bundled workflows and explain their prerequisites without inventing another memory system.
+
+### Configure the Slack boundary
+
+For either deployment:
+
+1. Set `GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS` to comma-separated public (`C...`) or private (`G...`) channel IDs. Set `GTM_AGENT_ALLOWED_SLACK_USER_IDS` to comma-separated user IDs (`U...` or `W...`). Duplicate, empty, malformed, and DM (`D...`) IDs are rejected.
+2. In the Slack connector's advanced settings, keep `app_mention` as the inbound event. The bot needs `app_mentions:read` and `chat:write`. Add `channels:history` for allowlisted public channels and `groups:history` for allowlisted private channels.
+3. Keep Slack interactivity enabled at `/eve/v1/slack` so Eve can deliver approval and question controls. Add the app to every allowlisted channel. This template does not need `message.im`, `im:history`, ordinary channel message events, or reaction events.
+
+Every request, including a later request in an existing thread, must mention `@gtm-agent`. The accepted mention receives thread messages since the app's previous reply. Eve 0.47.1 fetches at most the first 50 messages in a thread, so discussion beyond that cap may not reach the agent.
 
 ### Optional — host GTM workflows against your Turso database
 
@@ -62,7 +73,7 @@ This feature opens draft pull requests; it never updates `main`, merges, or depl
 
 1. Create a separate Vercel Connect GitHub connector and install its managed GitHub App only on the repository that contains this agent deployment.
 2. Set `EVE_SOURCE_GITHUB_CONNECTOR` to that connector identifier and `EVE_SOURCE_REPOSITORY` to the exact `owner/repo` connected to the Vercel project.
-3. Set `EVE_SOURCE_ALLOWED_SLACK_USER_IDS` to the comma-separated Slack user IDs allowed to request and approve source proposals.
+3. Set `EVE_SOURCE_ALLOWED_SLACK_USER_IDS` to the comma-separated Slack user IDs allowed to request and approve source proposals. Keep this narrower list inside `GTM_AGENT_ALLOWED_SLACK_USER_IDS`.
 4. Confirm the Vercel project exposes Git system environment variables, then redeploy.
 
 An allowed caller can ask Eve to change its instructions or a direct native schedule. Eve shows the complete frozen diff first. After the caller accepts it, native tool approval authorizes creation of a namespaced branch and draft pull request. Every broader source change stays outside this capability.
@@ -71,20 +82,20 @@ An allowed caller can ask Eve to change its instructions or a direct native sche
 
 Open the production deployment’s `/eve/v1/health` endpoint. It should report healthy before you test Slack.
 
-`SLACK_CONNECTOR` is required in production. The `slack/my-agent` placeholder is only for local development and build-time validation.
+`SLACK_CONNECTOR` and both `GTM_AGENT_ALLOWED_SLACK_*` allowlists are required in production. The `slack/my-agent` connector and empty development allowlists exist only for local build-time validation. Empty development allowlists admit nobody.
 
 ## 4. Ask the first question in Slack
 
 For Slack-only mode, try:
 
 ```text
-What GTM workflows can you help me with, and which ones require a connected workspace?
+@gtm-agent What GTM workflows can you help me with, and which ones require a connected workspace?
 ```
 
 With a fresh repository that has only a README, try:
 
 ```text
-Set up our GTM workspace.
+@gtm-agent Set up our GTM workspace.
 ```
 
 The agent asks for the organization's name, website, and links, researches them, shows the complete proposed organization file, and after your acceptance and approval saves it with the workspace contract files as its first commit on `main`. Suborganizations, members, ICPs, and personas follow in the same thread.
@@ -92,13 +103,13 @@ The agent asks for the organization's name, website, and links, researches them,
 With a workspace connected, try:
 
 ```text
-Read our saved ICPs and tell me which one best fits example.com. Cite the facts you used.
+@gtm-agent Read our saved ICPs and tell me which one best fits example.com. Cite the facts you used.
 ```
 
 With workflow hosting configured, try:
 
 ```text
-Create a workflow that scores a list of domains against our enterprise ICP, show me the dry run, and stop before any real spend.
+@gtm-agent Create a workflow that scores a list of domains against our enterprise ICP, show me the dry run, and stop before any real spend.
 ```
 
 When a workspace-dependent job lacks the required repository, ICPs, or personas, GTM Agent stops and explains the missing prerequisite instead of fabricating workspace content.
@@ -111,7 +122,8 @@ Before any write, Eve’s native approval gate shows the summary, complete affec
 
 ## 6. Troubleshoot the common setup issues
 
-- **The agent fails at startup:** confirm `SLACK_CONNECTOR` is set. For workspace mode, confirm both GitHub variables are set and the repository has a `main` branch with at least one commit; a repository created without a README has no branch to clone, so push any first commit or recreate it with a README.
+- **The agent fails at startup:** confirm `SLACK_CONNECTOR` and both `GTM_AGENT_ALLOWED_SLACK_*` allowlists are set. For workspace mode, confirm both GitHub variables are set and the repository has a `main` branch with at least one commit; a repository created without a README has no branch to clone, so push any first commit or recreate it with a README.
+- **An allowed mention gets no reply:** confirm both the user's ID and channel ID are allowlisted, the app is in the channel, and the connector has the matching `channels:history` or `groups:history` scope.
 - **The agent says the workspace is not set up yet:** the connected repository has no root `ORG.md`. Ask it in Slack to set up the GTM workspace. Until that first scaffold is saved, every other workspace write is refused.
 - **The GitHub connector was not created:** create it with `vercel connect create github` or in Vercel Connect settings, grant one repository, set `GITHUB_CONNECTOR`, and redeploy.
 - **A write reports a conflict:** another writer advanced `main`. Start a fresh Slack thread so the agent reads the new HEAD.

@@ -16,7 +16,7 @@
 
 ## Make Slack the front door to your GTM operating system
 
-A teammate asks for the outcome in a channel or DM. GTM Agent selects the workspace, ICP, persona, or workflow skill, reads the connected organization workspace when required, and returns a proposal where the rest of the team can review it. With a Turso database configured, it can also build and dry-run saved GTM workflows in the sandbox and run them on Vercel against the workspace's own data.
+An allowlisted teammate mentions GTM Agent in an allowlisted channel. GTM Agent selects the workspace, ICP, persona, or workflow skill, reads the connected organization workspace when required, and returns a proposal where the rest of the team can review it. Every later request needs another mention. DMs, bot messages, and ordinary channel messages are ignored. With a Turso database configured, the agent can also build and dry-run saved GTM workflows in the sandbox and run them on Vercel against the workspace's own data.
 
 > [!IMPORTANT]
 > **Breaking deployment change:** upgrading deployments must rename `GTM_CONTEXT_REPOSITORY` to `GTM_WORKSPACE_REPOSITORY` before redeploying. The former variable is no longer recognized.

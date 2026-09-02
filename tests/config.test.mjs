@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   CONFIGURATION_ERROR,
   DEFAULT_AGENT_MODEL,
+  SLACK_ACCESS_CONFIGURATION_ERROR,
   SLACK_CONFIGURATION_ERROR,
   SOURCE_CONFIGURATION_ERROR,
   SOURCE_DEPLOYMENT_ERROR,
@@ -18,7 +19,11 @@ import {
 
 test("Slack-only mode is valid without GitHub configuration", () => {
   assert.deepEqual(parseConfiguration({ SLACK_CONNECTOR: "slack/gtm-agent" }), {
-    slackConnector: "slack/gtm-agent",
+    slack: {
+      allowedChannelIds: [],
+      allowedUserIds: [],
+      connector: "slack/gtm-agent",
+    },
     source: null,
     workflow: null,
     workflowControl: null,
@@ -31,7 +36,96 @@ test("Slack connector is required for the production ingress", () => {
     () => parseConfiguration({ NODE_ENV: "production" }),
     new RegExp(SLACK_CONFIGURATION_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
   );
-  assert.equal(parseConfiguration({}).slackConnector, "slack/my-agent");
+  assert.equal(parseConfiguration({}).slack.connector, "slack/my-agent");
+});
+
+test("production requires both Slack access allowlists", () => {
+  const production = {
+    NODE_ENV: "production",
+    SLACK_CONNECTOR: "slack/gtm-agent",
+  };
+  const expected = new RegExp(
+    SLACK_ACCESS_CONFIGURATION_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
+
+  assert.throws(() => parseConfiguration(production), expected);
+  assert.throws(
+    () =>
+      parseConfiguration({
+        ...production,
+        GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS: "C012345678",
+      }),
+    expected,
+  );
+  assert.throws(
+    () =>
+      parseConfiguration({
+        ...production,
+        GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS: "",
+        GTM_AGENT_ALLOWED_SLACK_USER_IDS: "",
+      }),
+    expected,
+  );
+});
+
+test("Slack access allowlists parse exact public/private channel and user IDs", () => {
+  assert.deepEqual(
+    parseConfiguration({
+      NODE_ENV: "production",
+      SLACK_CONNECTOR: "slack/gtm-agent",
+      GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS: "C012345678, G087654321",
+      GTM_AGENT_ALLOWED_SLACK_USER_IDS: "U012345678, W087654321",
+    }).slack,
+    {
+      allowedChannelIds: ["C012345678", "G087654321"],
+      allowedUserIds: ["U012345678", "W087654321"],
+      connector: "slack/gtm-agent",
+    },
+  );
+});
+
+test("Slack access allowlists reject malformed, duplicate, and non-channel IDs", () => {
+  const valid = {
+    SLACK_CONNECTOR: "slack/gtm-agent",
+    GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS: "C012345678",
+    GTM_AGENT_ALLOWED_SLACK_USER_IDS: "U012345678",
+  };
+
+  for (const channelIds of [
+    "C012345678,C012345678",
+    "C012345678,",
+    "D012345678",
+    "c012345678",
+    "C123",
+  ]) {
+    assert.throws(
+      () =>
+        parseConfiguration({
+          ...valid,
+          GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS: channelIds,
+        }),
+      /GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS/,
+      channelIds,
+    );
+  }
+
+  for (const userIds of [
+    "U012345678,U012345678",
+    "U012345678,,U087654321",
+    "B012345678",
+    "u012345678",
+    "U123",
+  ]) {
+    assert.throws(
+      () =>
+        parseConfiguration({
+          ...valid,
+          GTM_AGENT_ALLOWED_SLACK_USER_IDS: userIds,
+        }),
+      /GTM_AGENT_ALLOWED_SLACK_USER_IDS/,
+      userIds,
+    );
+  }
 });
 
 test("connected mode derives immutable repository metadata", () => {
@@ -42,7 +136,11 @@ test("connected mode derives immutable repository metadata", () => {
       GTM_WORKSPACE_REPOSITORY: "acme-inc/gtm-workspace",
     }),
     {
-      slackConnector: "slack/gtm-agent",
+      slack: {
+        allowedChannelIds: [],
+        allowedUserIds: [],
+        connector: "slack/gtm-agent",
+      },
       source: null,
       workflow: null,
       workflowControl: null,
