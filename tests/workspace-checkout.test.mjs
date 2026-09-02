@@ -582,7 +582,6 @@ test("mutation preflight refuses a non-scaffold write until root ORG.md exists",
     workspace,
     expectedHead: "d".repeat(40),
     paths: ["ORG.md", "AGENTS.md", "CLAUDE.md", ".gitignore"],
-    initializing: true,
     sandbox,
   });
   assert.doesNotMatch(commands[1], /UNINITIALIZED/);
@@ -635,7 +634,6 @@ test("real Git preflight rejects an ordinary write to a README-only checkout and
       workspace: fixtureWorkspace,
       expectedHead: head,
       paths: ["ORG.md", "AGENTS.md", "CLAUDE.md", ".gitignore"],
-      initializing: true,
       sandbox,
     });
   } finally {

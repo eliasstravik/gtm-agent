@@ -185,27 +185,33 @@ export async function verifyWorkspaceCheckout(
   return head;
 }
 
+/**
+ * Only a mutation that writes root `ORG.md` may touch a checkout that has no
+ * organization file yet, so the first saved change on a README-only
+ * repository is always the workspace scaffold. That condition is derived
+ * here rather than trusted from the caller: root `ORG.md` can never be a
+ * deletion (`PROTECTED_ROOT_DELETIONS` in `workspace-paths.ts`), so its
+ * presence among `paths` means the mutation writes it.
+ */
 export async function assertWorkspaceCheckoutReady({
   workspace,
   expectedHead,
   paths,
   sandbox,
-  initializing = false,
 }: {
   readonly workspace: ConnectedWorkspaceConfiguration;
   readonly expectedHead: string;
   readonly paths: readonly string[];
   readonly sandbox: Pick<SandboxSession, "run">;
-  /**
-   * True when the mutation writes root `ORG.md`. Only such a mutation may
-   * touch a checkout that has no organization file yet, so the first saved
-   * change on a README-only repository is always the workspace scaffold.
-   */
-  readonly initializing?: boolean;
 }): Promise<void> {
   const result = await runSandboxCommand(
     sandbox,
-    createMutationPreflightCommand(workspace, expectedHead, paths, initializing),
+    createMutationPreflightCommand(
+      workspace,
+      expectedHead,
+      paths,
+      paths.includes("ORG.md"),
+    ),
   );
   assertPreflightSucceeded(result);
 }

@@ -163,9 +163,6 @@ export default defineTool({
             expectedHead,
             paths,
             sandbox,
-            initializing: mutation.manifest.some(
-              (entry) => entry.path === "ORG.md" && entry.operation === "write",
-            ),
           }),
         async getRemoteHead() {
           const response = await octokit.rest.git.getRef({
