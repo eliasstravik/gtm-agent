@@ -33,6 +33,11 @@ test("standing instructions define the fixed Slack and workspace mechanics", () 
     /private.*public web search/is,
     /create.*import.*sharing.*whole-(?:repository|workspace) deletion/is,
     /\/gtm-workspace.*keyboard/is,
+    /not set up yet/i,
+    /connected-repo substitutions/i,
+    /ORG\.md[\s\S]*AGENTS\.md[\s\S]*CLAUDE\.md[\s\S]*\.gitignore/,
+    /refuses any other write until root `ORG\.md` exists/i,
+    /create a different (?:workspace )?repository/i,
   ]) {
     assert.match(instructions, pattern);
   }

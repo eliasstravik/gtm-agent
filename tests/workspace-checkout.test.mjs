@@ -99,8 +99,7 @@ test("hydration clones main without credentials and restores deny-all", async ()
   assert.match(commands[0], /mkdir "\$repo_dir"/);
   assert.match(commands[0], /remote remove origin/);
   assert.equal(commands.some((command) => command.includes("Basic secret")), false);
-  assert.match(commands[1], /ORG\.md/);
-  assert.match(commands[1], /else[\s\S]+org\.md/);
+  assert.doesNotMatch(commands[1], /ORG\.md|org\.md/);
   assert.match(commands[1], /Unexpected credential variable/);
   assert.match(commands[1], /Unexpected Git credential configuration/);
   assert.match(commands[1], /120000/);
@@ -165,6 +164,37 @@ test("hydration fails closed and never includes authorization in errors", async 
     (error) => {
       assert.doesNotMatch(error.message, /secret/);
       assert.match(error.message, /checkout failed/i);
+      assert.match(error.message, /at least one commit/i);
+      assert.ok(error.cause instanceof Error);
+      assert.match(error.cause.message, /^GTM workspace checkout failed/);
+      return true;
+    },
+  );
+  assert.deepEqual(policies, ["deny-all"]);
+});
+
+test("a clone failure the guidance does not cover propagates unchanged", async () => {
+  const policies = [];
+  const aborted = new Error("aborted");
+  const sandbox = {
+    async run() {
+      throw aborted;
+    },
+    async setNetworkPolicy(policy) {
+      policies.push(policy);
+    },
+  };
+
+  await assert.rejects(
+    hydrateWorkspaceCheckout({
+      authorization: "Basic secret",
+      workspace,
+      async use() {
+        return sandbox;
+      },
+    }),
+    (error) => {
+      assert.equal(error, aborted);
       return true;
     },
   );
@@ -421,9 +451,9 @@ test("real Git preflight and verification reject dirty, stale, wrong branch, wro
   }
 });
 
-test("real Git verification rejects a checkout without a root organization file", async () => {
+test("real Git verification accepts a README-only checkout as not yet set up", async () => {
   const temporaryRoot = await mkdtemp(
-    join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "gtm-workspace-no-org-"),
+    join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "gtm-workspace-unset-"),
   );
   const repository = join(temporaryRoot, "repository");
   const fixtureWorkspace = {
@@ -452,16 +482,10 @@ test("real Git verification rejects a checkout without a root organization file"
     git(repository, ["config", "user.name", "Fixture"]);
     await writeFile(join(repository, "README.md"), "# Workspace\n", "utf8");
     git(repository, ["add", "README.md"]);
-    git(repository, ["commit", "-m", "fixture without organization"]);
+    git(repository, ["commit", "-m", "Initial commit"]);
+    const head = git(repository, ["rev-parse", "HEAD"]);
 
-    await assert.rejects(
-      verifyWorkspaceCheckout(
-        sandbox,
-        fixtureWorkspace,
-        git(repository, ["rev-parse", "HEAD"]),
-      ),
-      /verification failed/i,
-    );
+    assert.equal(await verifyWorkspaceCheckout(sandbox, fixtureWorkspace, head), head);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
@@ -565,4 +589,84 @@ test("verification refuses brokered workflow secrets in the session environment"
   }
   assert.equal(variables.includes("TURSO_DATABASE_URL"), false);
   assert.equal(variables.includes("AI_GATEWAY_API_KEY"), false);
+});
+
+test("mutation preflight refuses a non-scaffold write until root ORG.md exists", async () => {
+  const commands = [];
+  const sandbox = {
+    async run(input) {
+      commands.push(input.command);
+      return { exitCode: 0, stderr: "", stdout: "" };
+    },
+  };
+  await assertWorkspaceCheckoutReady({
+    workspace,
+    expectedHead: "d".repeat(40),
+    paths: ["icps/enterprise/ICP.md"],
+    sandbox,
+  });
+  assert.match(commands[0], /fail UNINITIALIZED/);
+  assert.match(commands[0], /test -f "\$repo_dir\/ORG\.md" \|\| test -f "\$repo_dir\/org\.md"/);
+
+  await assertWorkspaceCheckoutReady({
+    workspace,
+    expectedHead: "d".repeat(40),
+    paths: ["ORG.md", "AGENTS.md", "CLAUDE.md", ".gitignore"],
+    sandbox,
+  });
+  assert.doesNotMatch(commands[1], /UNINITIALIZED/);
+});
+
+test("real Git preflight rejects an ordinary write to a README-only checkout and accepts the scaffold", async () => {
+  const temporaryRoot = await mkdtemp(
+    join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "gtm-workspace-unset-preflight-"),
+  );
+  const repository = join(temporaryRoot, "repository");
+  const fixtureWorkspace = {
+    ...workspace,
+    checkoutDirectory: repository,
+    staleMarker: join(temporaryRoot, ".stale"),
+  };
+  const sandbox = {
+    async run({ command }) {
+      const result = spawnSync("bash", ["-c", command], {
+        encoding: "utf8",
+        env: { HOME: temporaryRoot, PATH: process.env.PATH },
+      });
+      return {
+        exitCode: result.status ?? 1,
+        stderr: result.stderr,
+        stdout: result.stdout,
+      };
+    },
+  };
+
+  try {
+    await mkdir(repository, { recursive: true });
+    git(repository, ["init", "--initial-branch=main"]);
+    git(repository, ["config", "user.email", "fixture@example.test"]);
+    git(repository, ["config", "user.name", "Fixture"]);
+    await writeFile(join(repository, "README.md"), "# Workspace\n", "utf8");
+    git(repository, ["add", "README.md"]);
+    git(repository, ["commit", "-m", "Initial commit"]);
+    const head = git(repository, ["rev-parse", "HEAD"]);
+
+    await assert.rejects(
+      assertWorkspaceCheckoutReady({
+        workspace: fixtureWorkspace,
+        expectedHead: head,
+        paths: ["icps/enterprise/ICP.md"],
+        sandbox,
+      }),
+      /not set up yet/i,
+    );
+    await assertWorkspaceCheckoutReady({
+      workspace: fixtureWorkspace,
+      expectedHead: head,
+      paths: ["ORG.md", "AGENTS.md", "CLAUDE.md", ".gitignore"],
+      sandbox,
+    });
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 });

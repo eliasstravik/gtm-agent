@@ -62,7 +62,7 @@ When the connected workspace needs an update, the agent shows the complete propo
 <tr>
 <td align="center" valign="top" width="33%"><h3>1️⃣</h3><b>Deploy GTM Agent</b><br /><sub>Create the Vercel project from this Eve template and configure the required model access.</sub></td>
 <td align="center" valign="top" width="33%"><h3>2️⃣</h3><b>Connect Slack</b><br /><sub>Authorize the generated Slack app and verify the standard Eve health endpoint.</sub></td>
-<td align="center" valign="top" width="33%"><h3>3️⃣</h3><b>Connect your GTM workspace</b><br /><sub>Point the deployment at one repository when the team wants shared organization, ICP, persona, and member content. Add a Turso database to host saved workflows.</sub></td>
+<td align="center" valign="top" width="33%"><h3>3️⃣</h3><b>Connect your GTM workspace</b><br /><sub>Point the deployment at one repository, even a brand-new one with only a README, and finish the workspace setup from Slack. Add a Turso database to host saved workflows.</sub></td>
 </tr>
 </table>
 
@@ -88,6 +88,10 @@ One deliberately small Eve agent with Slack as its only channel, the exact appro
 ### Can I use it without a workspace repository?
 
 Yes. Slack-only mode can load the workflows and explain their prerequisites. Jobs that require saved ICPs, personas, or organization workspace content stop and explain what is missing.
+
+### Do I have to build the workspace before deploying?
+
+No. Create a repository on GitHub with a README, point the deployment at it, and say "set up our GTM workspace" in Slack. The agent runs the guided setup and its first approved change becomes the workspace scaffold on `main`.
 
 ### What changes when I connect GitHub?
 

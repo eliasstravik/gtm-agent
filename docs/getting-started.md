@@ -11,7 +11,7 @@ You need:
 
 - A Vercel account with Eve/Workflow, Vercel Sandbox, Connect, and AI Gateway available
 - A Slack workspace where you can install the generated app
-- For workspace mode, one existing GitHub repository with a `main` branch and root `ORG.md`; a legacy root `org.md` is accepted so the workspace can be migrated
+- For workspace mode, one GitHub repository with a `main` branch that has at least one commit. A new private repository created with "Add a README file" ticked is enough: the agent sets up the workspace from Slack. An existing workspace with root `ORG.md`, or a legacy root `org.md` that the agent can migrate, also works
 - For workflow hosting, one Turso database dedicated to that workspace (the Vercel Marketplace Turso integration works) plus a read-only token for it; model calls happen on the workflow project with its own budgeted Vercel AI Gateway key
 
 The agent repository and the workspace repository are different things. This repository contains the executable agent and its locked workflow snapshot. Your workspace repository contains your organization’s private GTM definitions. Never set `GTM_WORKSPACE_REPOSITORY` to this repository.
@@ -81,6 +81,14 @@ For Slack-only mode, try:
 What GTM workflows can you help me with, and which ones require a connected workspace?
 ```
 
+With a fresh repository that has only a README, try:
+
+```text
+Set up our GTM workspace.
+```
+
+The agent asks for the organization's name, website, and links, researches them, shows the complete proposed organization file, and after your acceptance and approval saves it with the workspace contract files as its first commit on `main`. Suborganizations, members, ICPs, and personas follow in the same thread.
+
 With a workspace connected, try:
 
 ```text
@@ -103,7 +111,8 @@ Before any write, Eve’s native approval gate shows the summary, complete affec
 
 ## 6. Troubleshoot the common setup issues
 
-- **The agent fails at startup:** confirm `SLACK_CONNECTOR` is set. For workspace mode, confirm both GitHub variables are set and the repository uses `main` with root `ORG.md` or the migratable legacy root `org.md`.
+- **The agent fails at startup:** confirm `SLACK_CONNECTOR` is set. For workspace mode, confirm both GitHub variables are set and the repository has a `main` branch with at least one commit; a repository created without a README has no branch to clone, so push any first commit or recreate it with a README.
+- **The agent says the workspace is not set up yet:** the connected repository has no root `ORG.md`. Ask it in Slack to set up the GTM workspace. Until that first scaffold is saved, every other workspace write is refused.
 - **The GitHub connector was not created:** create it with `vercel connect create github` or in Vercel Connect settings, grant one repository, set `GITHUB_CONNECTOR`, and redeploy.
 - **A write reports a conflict:** another writer advanced `main`. Start a fresh Slack thread so the agent reads the new HEAD.
 - **A commit succeeded but the session is stale:** use the returned GitHub commit URL as the durable result and start a fresh Slack thread.
