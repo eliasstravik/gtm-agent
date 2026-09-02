@@ -132,6 +132,13 @@ export async function hydrateWorkspaceCheckout({
       createCloneCommand(workspace),
       "GTM workspace checkout",
     );
+  } catch (error) {
+    if (error instanceof Error && /^GTM workspace checkout failed/.test(error.message)) {
+      throw new Error(
+        "GTM workspace checkout failed. Confirm GTM_WORKSPACE_REPOSITORY names a repository whose main branch has at least one commit (a new repository created with a README is enough) and that the GitHub connector can read it, then start a fresh Slack thread.",
+      );
+    }
+    throw error;
   } finally {
     await closeSandboxEgress(sandbox, baselinePolicy);
   }
@@ -288,12 +295,6 @@ function createVerificationCommand(
 ): string {
   return `set -euo pipefail
 repo_dir="${workspace.checkoutDirectory}"
-if test -f "$repo_dir/ORG.md" && test ! -L "$repo_dir/ORG.md"; then
-  :
-else
-  test -f "$repo_dir/org.md"
-  test ! -L "$repo_dir/org.md"
-fi
 test "$(git -C "$repo_dir" branch --show-current)" = "${workspace.branch}"
 test -z "$(git -C "$repo_dir" status --porcelain)"
 test -z "$(git -C "$repo_dir" remote)"

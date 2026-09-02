@@ -99,8 +99,7 @@ test("hydration clones main without credentials and restores deny-all", async ()
   assert.match(commands[0], /mkdir "\$repo_dir"/);
   assert.match(commands[0], /remote remove origin/);
   assert.equal(commands.some((command) => command.includes("Basic secret")), false);
-  assert.match(commands[1], /ORG\.md/);
-  assert.match(commands[1], /else[\s\S]+org\.md/);
+  assert.doesNotMatch(commands[1], /ORG\.md|org\.md/);
   assert.match(commands[1], /Unexpected credential variable/);
   assert.match(commands[1], /Unexpected Git credential configuration/);
   assert.match(commands[1], /120000/);
@@ -165,6 +164,7 @@ test("hydration fails closed and never includes authorization in errors", async 
     (error) => {
       assert.doesNotMatch(error.message, /secret/);
       assert.match(error.message, /checkout failed/i);
+      assert.match(error.message, /at least one commit/i);
       return true;
     },
   );
@@ -421,9 +421,9 @@ test("real Git preflight and verification reject dirty, stale, wrong branch, wro
   }
 });
 
-test("real Git verification rejects a checkout without a root organization file", async () => {
+test("real Git verification accepts a README-only checkout as not yet set up", async () => {
   const temporaryRoot = await mkdtemp(
-    join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "gtm-workspace-no-org-"),
+    join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "gtm-workspace-unset-"),
   );
   const repository = join(temporaryRoot, "repository");
   const fixtureWorkspace = {
@@ -452,16 +452,10 @@ test("real Git verification rejects a checkout without a root organization file"
     git(repository, ["config", "user.name", "Fixture"]);
     await writeFile(join(repository, "README.md"), "# Workspace\n", "utf8");
     git(repository, ["add", "README.md"]);
-    git(repository, ["commit", "-m", "fixture without organization"]);
+    git(repository, ["commit", "-m", "Initial commit"]);
+    const head = git(repository, ["rev-parse", "HEAD"]);
 
-    await assert.rejects(
-      verifyWorkspaceCheckout(
-        sandbox,
-        fixtureWorkspace,
-        git(repository, ["rev-parse", "HEAD"]),
-      ),
-      /verification failed/i,
-    );
+    assert.equal(await verifyWorkspaceCheckout(sandbox, fixtureWorkspace, head), head);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
