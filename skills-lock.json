@@ -3,7 +3,7 @@
   "status": "ready",
   "source": {
     "url": "https://github.com/eliasstravik/gtm-skills.git",
-    "commit": "dce08fbce4c15c14273d6be989dffff04db7ef52",
+    "commit": "4e18fadd07cdfec71a81307b1aabc3ba186fb17a",
     "license": "LICENSES/gtm-skills-MIT.txt",
     "licenseSha256": "34d04d3fd8fa65074d86e9dbfa2717d9c8d0237b1218cde0ece5d80eeae6fe2d"
   },
@@ -72,10 +72,10 @@
     "gtm-workflow/templates/server/api/runs/[runId]/cancel.post.ts": "033847265ed19bd73858268f4653bb18892be7e8db9469119bedd78b9fc90dca",
     "gtm-workflow/templates/server/api/runs/[runId]/trigger.post.ts": "9f3e711ee37ec615b03a34cb722aa8039c3ab4c823124327f089e3c81e8538ab",
     "gtm-workflow/templates/vercelignore": "d04cc8a7f774d4305495cdbfd93180accc253da3c63c42be58c6773463695db4",
-    "gtm-workspace/SKILL.md": "b3a27c7b382ea14b7286c6c43f3bd8097a305964f864a96bb9dad822eb01ae9b",
+    "gtm-workspace/SKILL.md": "3157afe4f1d49070f45b587dd4a3e562e8d5511fa048be730aa070944fe43b69",
     "gtm-workspace/references/company-data.md": "c8a7518a686b69c142433ad5ff294c691b8f2835db55b5f0f409d45eb509ec70",
-    "gtm-workspace/references/contract.md": "a13975574a9ce5ef787c363aaec3ff6b6684426e74e81aa3930b669c69bc903b",
-    "gtm-workspace/references/flows.md": "70a6ad93ff31128966ea0dd1b1ac9c570233cc3d25e44334140452992e7dc74b",
+    "gtm-workspace/references/contract.md": "a7d6f91bbe56acaeaa873209fa0a70946bd7e34e50948f69994fde8920053e37",
+    "gtm-workspace/references/flows.md": "a5804a377e8ac0633998679ca73dc09877161f4b74fd6352086be54e3773a0f6",
     "gtm-workspace/references/person-data.md": "eae2915365fc5f1e297fd4cd97cef28fa5389dd3d1a7d227dbe783618eebb534",
     "gtm-workspace/templates/AGENTS.md": "032f3b93f5ae88b9c37e3d1fdee4a2c204d9e6d137b225962650d0fb50c59492",
     "gtm-workspace/templates/CLAUDE.md": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
