@@ -111,7 +111,7 @@ const inputSchema = z
 
 export default defineTool({
   description:
-    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Declared workflow migrations must include their generated Drizzle journal and any schema snapshot; they apply inside a short write window and every SQL hash must be present in the migration ledger before the commit. Vercel workflow changes then deploy through the repository's Git connection. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state. On a connected repository that has no root ORG.md yet, the first change must write ORG.md together with AGENTS.md, CLAUDE.md, and .gitignore; any other write is refused until then.",
+    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Declared workflow migrations must include their generated Drizzle journal and any schema snapshot; they apply inside a short write window and every SQL hash must be present in the migration ledger before the commit. Vercel workflow changes then deploy through the repository's Git connection. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state. On a connected repository that has no root ORG.md yet, every change is refused unless it writes root ORG.md; the create flow's first change writes it together with AGENTS.md, CLAUDE.md, and .gitignore.",
   inputSchema,
   approval: always(),
   async execute(input, ctx) {

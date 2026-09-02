@@ -87,7 +87,7 @@ With a fresh repository that has only a README, try:
 Set up our GTM workspace.
 ```
 
-The agent asks for the organization's name, website, and links, researches them, shows the complete proposed organization file, and after your acceptance and approval saves it with the workspace contract files as the first commit on `main`. Suborganizations, members, ICPs, and personas follow in the same thread.
+The agent asks for the organization's name, website, and links, researches them, shows the complete proposed organization file, and after your acceptance and approval saves it with the workspace contract files as its first commit on `main`. Suborganizations, members, ICPs, and personas follow in the same thread.
 
 With a workspace connected, try:
 
