@@ -111,7 +111,7 @@ const inputSchema = z
 
 export default defineTool({
   description:
-    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Declared workflow migrations must include their generated Drizzle journal and any schema snapshot; they apply inside a short write window and every SQL hash must be present in the migration ledger before the commit. Vercel workflow changes then deploy through the repository's Git connection. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state.",
+    "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Declared workflow migrations must include their generated Drizzle journal and any schema snapshot; they apply inside a short write window and every SQL hash must be present in the migration ledger before the commit. Vercel workflow changes then deploy through the repository's Git connection. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state. On a connected repository that has no root ORG.md yet, the first change must write ORG.md together with AGENTS.md, CLAUDE.md, and .gitignore; any other write is refused until then.",
   inputSchema,
   approval: always(),
   async execute(input, ctx) {
@@ -163,6 +163,9 @@ export default defineTool({
             expectedHead,
             paths,
             sandbox,
+            initializing: mutation.manifest.some(
+              (entry) => entry.path === "ORG.md" && entry.operation === "write",
+            ),
           }),
         async getRemoteHead() {
           const response = await octokit.rest.git.getRef({
