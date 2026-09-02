@@ -21,6 +21,8 @@ export const WORKSPACE_REPOSITORY_SELF_ERROR =
   "GTM_WORKSPACE_REPOSITORY must not name the agent's own source repository; point it at the separate GTM workspace repository.";
 export const SLACK_CONFIGURATION_ERROR =
   "SLACK_CONNECTOR must be set to the deployment's Vercel Connect Slack connector.";
+export const SLACK_ACCESS_CONFIGURATION_ERROR =
+  "Slack access configuration is incomplete: set both GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS and GTM_AGENT_ALLOWED_SLACK_USER_IDS.";
 export const WORKFLOW_CONFIGURATION_ERROR =
   "GTM workflow configuration is incomplete: set TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, and TURSO_READ_ONLY_AUTH_TOKEN together, or unset all three to run without workflow hosting.";
 export const WORKFLOW_TOKEN_ERROR =
@@ -138,8 +140,14 @@ export type SourceProposalConfiguration = WorkspaceRepository & {
   readonly deployedSha: string;
 };
 
+export type SlackConfiguration = {
+  readonly allowedChannelIds: readonly string[];
+  readonly allowedUserIds: readonly string[];
+  readonly connector: string;
+};
+
 export type GtmAgentConfiguration = {
-  readonly slackConnector: string;
+  readonly slack: SlackConfiguration;
   readonly source: SourceProposalConfiguration | null;
   readonly workflow: WorkflowHostConfiguration | null;
   readonly workflowControl: WorkflowControlConfiguration | null;
@@ -171,6 +179,8 @@ export function parseConfiguration(
     throw new Error(SLACK_CONFIGURATION_ERROR);
   }
 
+  const slack = parseSlackConfiguration(environment, slackConnector);
+
   const source = parseSourceProposalConfiguration(environment);
 
   if ((connector === undefined) !== (repositoryValue === undefined)) {
@@ -187,7 +197,7 @@ export function parseConfiguration(
   if (connector === undefined || repositoryValue === undefined) {
     const workflow = parseWorkflowConfiguration(environment, false);
     return {
-      slackConnector,
+      slack,
       source,
       workflow,
       workflowControl: parseWorkflowControlConfiguration(environment, false, workflow),
@@ -203,7 +213,7 @@ export function parseConfiguration(
     throw new Error(WORKFLOW_CONTROL_AUTHOR_ERROR);
   }
   return {
-    slackConnector,
+    slack,
     source,
     workflow,
     workflowControl,
@@ -216,6 +226,56 @@ export function parseConfiguration(
       staleMarker: `$HOME/.gtm/.${repository.repo}.stale`,
     },
   };
+}
+
+function parseSlackConfiguration(
+  environment: Readonly<Record<string, string | undefined>>,
+  connector: string,
+): SlackConfiguration {
+  const channelIdsValue = present(environment.GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS);
+  const userIdsValue = present(environment.GTM_AGENT_ALLOWED_SLACK_USER_IDS);
+
+  if (channelIdsValue === undefined && userIdsValue === undefined) {
+    if (environment.NODE_ENV === "production") {
+      throw new Error(SLACK_ACCESS_CONFIGURATION_ERROR);
+    }
+    return { allowedChannelIds: [], allowedUserIds: [], connector };
+  }
+
+  if (channelIdsValue === undefined || userIdsValue === undefined) {
+    throw new Error(SLACK_ACCESS_CONFIGURATION_ERROR);
+  }
+
+  return {
+    allowedChannelIds: parseSlackIdList(
+      channelIdsValue,
+      "GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS",
+      /^[CG][A-Z0-9]{8,}$/,
+    ),
+    allowedUserIds: parseSlackIdList(
+      userIdsValue,
+      "GTM_AGENT_ALLOWED_SLACK_USER_IDS",
+      /^[UW][A-Z0-9]{8,}$/,
+    ),
+    connector,
+  };
+}
+
+function parseSlackIdList(
+  value: string,
+  setting: string,
+  pattern: RegExp,
+): readonly string[] {
+  const ids = value.split(",").map((entry) => entry.trim());
+  if (
+    ids.some((id) => !pattern.test(id)) ||
+    new Set(ids).size !== ids.length
+  ) {
+    throw new Error(
+      `${setting} must be a comma-separated list of unique, exact Slack IDs.`,
+    );
+  }
+  return ids;
 }
 
 /**
