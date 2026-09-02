@@ -165,6 +165,36 @@ test("hydration fails closed and never includes authorization in errors", async 
       assert.doesNotMatch(error.message, /secret/);
       assert.match(error.message, /checkout failed/i);
       assert.match(error.message, /at least one commit/i);
+      assert.ok(error.cause instanceof Error);
+      assert.match(error.cause.message, /^GTM workspace checkout failed/);
+      return true;
+    },
+  );
+  assert.deepEqual(policies, ["deny-all"]);
+});
+
+test("a clone failure the guidance does not cover propagates unchanged", async () => {
+  const policies = [];
+  const aborted = new Error("aborted");
+  const sandbox = {
+    async run() {
+      throw aborted;
+    },
+    async setNetworkPolicy(policy) {
+      policies.push(policy);
+    },
+  };
+
+  await assert.rejects(
+    hydrateWorkspaceCheckout({
+      authorization: "Basic secret",
+      workspace,
+      async use() {
+        return sandbox;
+      },
+    }),
+    (error) => {
+      assert.equal(error, aborted);
       return true;
     },
   );

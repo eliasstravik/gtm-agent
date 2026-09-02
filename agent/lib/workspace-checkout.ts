@@ -136,6 +136,7 @@ export async function hydrateWorkspaceCheckout({
     if (error instanceof Error && /^GTM workspace checkout failed/.test(error.message)) {
       throw new Error(
         "GTM workspace checkout failed. Confirm GTM_WORKSPACE_REPOSITORY names a repository whose main branch has at least one commit (a new repository created with a README is enough) and that the GitHub connector can read it, then start a fresh Slack thread.",
+        { cause: error },
       );
     }
     throw error;
