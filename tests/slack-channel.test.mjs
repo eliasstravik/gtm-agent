@@ -17,6 +17,7 @@ function createPolicy() {
 function message({
   channelId = ALLOWED_CHANNEL,
   isBot = false,
+  raw = {},
   threadTs = "1700000000.000001",
   userId = ALLOWED_USER,
 } = {}) {
@@ -31,7 +32,7 @@ function message({
     },
     channelId,
     markdown: `<@U999999999> run this`,
-    raw: {},
+    raw,
     teamId: "T012345678",
     text: `<@U999999999> run this`,
     threadTs,
@@ -39,8 +40,9 @@ function message({
   };
 }
 
-function messageContext(channelId = ALLOWED_CHANNEL) {
+function messageContext(channelId = ALLOWED_CHANNEL, subscribed = false) {
   return {
+    isSubscribed: async () => subscribed,
     slack: {
       channelId,
       teamId: "T012345678",
@@ -114,11 +116,83 @@ test("an empty development allowlist admits nobody", () => {
   );
 });
 
-test("Slack policy disables DMs and leaves ordinary messages and custom interactions off", () => {
+test("Slack policy continues a subscribed thread on an allowlisted human reply without a mention", async () => {
+  const policy = createPolicy();
+
+  const result = await policy.onMessage(
+    messageContext(ALLOWED_CHANNEL, true),
+    message(),
+  );
+
+  assert.equal(result.auth.authenticator, "slack-webhook");
+  assert.match(result.auth.principalId, new RegExp(`${ALLOWED_USER}$`));
+});
+
+test("Slack policy ignores unmentioned messages outside a subscribed thread", async () => {
+  const policy = createPolicy();
+
+  assert.equal(
+    await policy.onMessage(messageContext(ALLOWED_CHANNEL, false), message()),
+    null,
+  );
+});
+
+test("Slack policy applies the mention allowlists to subscribed-thread replies", async () => {
+  const policy = createPolicy();
+  const subscribed = messageContext(ALLOWED_CHANNEL, true);
+
+  assert.equal(
+    await policy.onMessage(subscribed, message({ userId: "U087654321" })),
+    null,
+  );
+  assert.equal(
+    await policy.onMessage(
+      messageContext("C087654321", true),
+      message({ channelId: "C087654321" }),
+    ),
+    null,
+  );
+  assert.equal(
+    await policy.onMessage(subscribed, message({ isBot: true })),
+    null,
+  );
+  assert.equal(
+    await policy.onMessage(subscribed, { ...message(), author: undefined }),
+    null,
+  );
+});
+
+test("Slack policy ignores edits, deletions, and other non-post subtypes in subscribed threads", async () => {
+  const policy = createPolicy();
+  const subscribed = messageContext(ALLOWED_CHANNEL, true);
+
+  for (const subtype of [
+    "message_changed",
+    "message_deleted",
+    "channel_join",
+    "channel_topic",
+    "bot_message",
+  ]) {
+    assert.equal(
+      await policy.onMessage(subscribed, message({ raw: { subtype } })),
+      null,
+      subtype,
+    );
+  }
+
+  for (const subtype of ["file_share", "thread_broadcast"]) {
+    const result = await policy.onMessage(
+      subscribed,
+      message({ raw: { subtype } }),
+    );
+    assert.equal(result.auth.authenticator, "slack-webhook", subtype);
+  }
+});
+
+test("Slack policy disables DMs and leaves custom events and interactions off", () => {
   const policy = createPolicy();
 
   assert.equal(policy.onDirectMessage(messageContext(), message()), null);
-  assert.equal(policy.onMessage, undefined);
   assert.equal(policy.onEvent, undefined);
   assert.equal(policy.onInteraction, undefined);
 });

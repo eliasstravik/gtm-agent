@@ -6,7 +6,7 @@ Please report suspected vulnerabilities privately to the repository owner. Do no
 
 ## Security model
 
-- Slack is the only ingress channel. Production starts only with exact channel and user allowlists. The agent accepts human app mentions from those pairs, rejects DMs and bot-authored messages, and applies the same allowlists to native approval and input submissions.
+- Slack is the only ingress channel. Production starts only with exact channel and user allowlists. The agent accepts human app mentions from those pairs, continues an existing agent thread on unmentioned replies from the same allowlisted pairs, rejects DMs, bot-authored messages, message edits and deletions, and unmentioned top-level messages, and applies the same allowlists to native approval and input submissions.
 - The GitHub workspace is optional and restricted to one deployment-configured `owner/repo` on `main`.
 - Read access uses a short-lived, repository-bound token only in the trusted runtime. The sandbox firewall injects it only into Git upload-pack discovery and the exact upload-pack POST; Git receive-pack is never allowed. The token is never placed in the sandbox environment, command, Git remote, or config.
 - The sandbox returns to its session baseline (deny-all, or the exact workflow allowlist below) immediately after clone or refresh. Restoration is attempted twice; a repeated failure becomes a terminal session error and is never represented as mutation success.

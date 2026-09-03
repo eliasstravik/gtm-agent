@@ -49,10 +49,10 @@ Leave `GITHUB_CONNECTOR` and `GTM_WORKSPACE_REPOSITORY` unset. The agent can loa
 For either deployment:
 
 1. Set `GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS` to comma-separated public (`C...`) or private (`G...`) channel IDs. Set `GTM_AGENT_ALLOWED_SLACK_USER_IDS` to comma-separated user IDs (`U...` or `W...`). Duplicate, empty, malformed, and DM (`D...`) IDs are rejected.
-2. In the Slack connector's advanced settings, keep `app_mention` as the inbound event. The bot needs `app_mentions:read` and `chat:write`. Add `channels:history` for allowlisted public channels and `groups:history` for allowlisted private channels.
-3. Keep Slack interactivity enabled at `/eve/v1/slack` so Eve can deliver approval and question controls. Add the app to every allowlisted channel. This template does not need `message.im`, `im:history`, ordinary channel message events, or reaction events.
+2. In the Slack connector's advanced settings, subscribe to `app_mention` and `message.channels`. Add `message.groups` if any allowlisted channel is private. The bot needs `app_mentions:read` and `chat:write`. Add `channels:history` for allowlisted public channels and `groups:history` for allowlisted private channels.
+3. Keep Slack interactivity enabled at `/eve/v1/slack` so Eve can deliver approval and question controls. Add the app to every allowlisted channel. This template does not need `message.im`, `im:history`, or reaction events.
 
-Every request, including a later request in an existing thread, must mention `@gtm-agent`. The accepted mention receives thread messages since the app's previous reply. Eve 0.47.1 fetches at most the first 50 messages in a thread, so discussion beyond that cap may not reach the agent.
+A new request must mention `@gtm-agent`. Once the agent has replied in a thread, an allowlisted person can keep replying in that thread without another mention, and each reply continues the same session. Unmentioned top-level messages, DMs, bot posts, and message edits or deletions never start a turn. Every accepted message receives thread messages since the app's previous reply. Eve 0.47.1 fetches at most the first 50 messages in a thread, so discussion beyond that cap may not reach the agent.
 
 ### Optional — host GTM workflows against your Turso database
 
@@ -124,6 +124,7 @@ Before any write, Eve’s native approval gate shows the summary, complete affec
 
 - **The agent fails at startup:** confirm `SLACK_CONNECTOR` and both `GTM_AGENT_ALLOWED_SLACK_*` allowlists are set. For workspace mode, confirm both GitHub variables are set and the repository has a `main` branch with at least one commit; a repository created without a README has no branch to clone, so push any first commit or recreate it with a README.
 - **An allowed mention gets no reply:** confirm both the user's ID and channel ID are allowlisted, the app is in the channel, and the connector has the matching `channels:history` or `groups:history` scope.
+- **A thread reply without a mention gets no reply:** confirm the agent already replied in that thread, the connector subscribes to `message.channels` (or `message.groups` for a private channel), and the reply came from an allowlisted user. Replies from anyone else are ignored by design.
 - **The agent says the workspace is not set up yet:** the connected repository has no root `ORG.md`. Ask it in Slack to set up the GTM workspace. Until that first scaffold is saved, every other workspace write is refused.
 - **The GitHub connector was not created:** create it with `vercel connect create github` or in Vercel Connect settings, grant one repository, set `GITHUB_CONNECTOR`, and redeploy.
 - **A write reports a conflict:** another writer advanced `main`. Start a fresh Slack thread so the agent reads the new HEAD.
