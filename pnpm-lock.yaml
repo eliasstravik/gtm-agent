@@ -4,13 +4,18 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  eve@0.49.1:
+    hash: c6ba848a0d8ff54ccc44b88df62cdb9037b2c6352e66182d175ef55f7577a56d
+    path: patches/eve@0.49.1.patch
+
 importers:
 
   .:
     dependencies:
       '@vercel/connect':
         specifier: 2.0.0
-        version: 2.0.0(ai@7.0.83(zod@4.4.3))(eve@0.47.1(ai@7.0.83(zod@4.4.3)))
+        version: 2.0.0(ai@7.0.83(zod@4.4.3))(eve@0.49.1(patch_hash=c6ba848a0d8ff54ccc44b88df62cdb9037b2c6352e66182d175ef55f7577a56d)(ai@7.0.83(zod@4.4.3)))
       '@vercel/oidc':
         specifier: 3.8.5
         version: 3.8.5
@@ -18,8 +23,8 @@ importers:
         specifier: 7.0.83
         version: 7.0.83(zod@4.4.3)
       eve:
-        specifier: 0.47.1
-        version: 0.47.1(ai@7.0.83(zod@4.4.3))
+        specifier: 0.49.1
+        version: 0.49.1(patch_hash=c6ba848a0d8ff54ccc44b88df62cdb9037b2c6352e66182d175ef55f7577a56d)(ai@7.0.83(zod@4.4.3))
       octokit:
         specifier: 5.0.5
         version: 5.0.5
@@ -504,13 +509,13 @@ packages:
       wrangler:
         optional: true
 
-  eve@0.47.1:
-    resolution: {integrity: sha512-OCePVXUOqUQe6cxrB7D6arq55VamsCrnm81mnyO41qe8+eWHhGnpA4TIv8oZxnCC9Ny3vBVGp6ZEv868+XQDXg==}
+  eve@0.49.1:
+    resolution: {integrity: sha512-VM5VkTnzgHfta5OIkVMR/hDSfSokD7pTknLsHOVvOcQZaBxLwdK+gyb9y26oBeMgjhVOPR1CkPwnVFGqdwlnrw==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
       '@opentelemetry/api': ^1.0.0
-      ai: ^7.0.58
+      ai: ^7.0.82
       braintrust: ^3.0.0
       just-bash: ^3.1.0
       microsandbox: ^0.5.0
@@ -1102,12 +1107,12 @@ snapshots:
     dependencies:
       execa: 5.1.1
 
-  '@vercel/connect@2.0.0(ai@7.0.83(zod@4.4.3))(eve@0.47.1(ai@7.0.83(zod@4.4.3)))':
+  '@vercel/connect@2.0.0(ai@7.0.83(zod@4.4.3))(eve@0.49.1(patch_hash=c6ba848a0d8ff54ccc44b88df62cdb9037b2c6352e66182d175ef55f7577a56d)(ai@7.0.83(zod@4.4.3)))':
     dependencies:
       '@vercel/oidc': 3.8.5
     optionalDependencies:
       ai: 7.0.83(zod@4.4.3)
-      eve: 0.47.1(ai@7.0.83(zod@4.4.3))
+      eve: 0.49.1(patch_hash=c6ba848a0d8ff54ccc44b88df62cdb9037b2c6352e66182d175ef55f7577a56d)(ai@7.0.83(zod@4.4.3))
 
   '@vercel/oidc@3.2.0': {}
 
@@ -1153,7 +1158,7 @@ snapshots:
       httpxy: 0.5.5
       srvx: 0.11.22
 
-  eve@0.47.1(ai@7.0.83(zod@4.4.3)):
+  eve@0.49.1(patch_hash=c6ba848a0d8ff54ccc44b88df62cdb9037b2c6352e66182d175ef55f7577a56d)(ai@7.0.83(zod@4.4.3)):
     dependencies:
       ai: 7.0.83(zod@4.4.3)
       nitro: 3.0.260610-beta

@@ -57,7 +57,7 @@ test("the sole authored write tool is approval-gated and repository-bound", asyn
   ]);
 
   const tool = await read("agent/tools/apply_gtm_workspace_changes.ts");
-  assert.match(tool, /approval:\s*always\(\)/);
+  assert.match(tool, /approval:\s*workspaceMutationApproval/);
   assert.match(tool, /summary[\s\S]+manifest[\s\S]+expectedHead[\s\S]+message[\s\S]+additions[\s\S]+deletions[\s\S]+migrations[\s\S]+destructive/);
   assert.match(tool, /createWorkflowWritePolicy/);
   assert.match(tool, /WorkflowMigrationError/);
