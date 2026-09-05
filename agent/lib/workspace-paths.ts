@@ -162,10 +162,6 @@ export function validateWorkspaceMutation<T extends WorkspaceMutation>(input: T)
     );
   }
 
-  if (input.manifest.length !== payloadCount) {
-    throw new Error("Manifest must contain exactly one entry for every payload path.");
-  }
-
   const manifestOperations = new Map<
     string,
     WorkspaceManifestEntry["operation"]
@@ -182,15 +178,29 @@ export function validateWorkspaceMutation<T extends WorkspaceMutation>(input: T)
     manifestOperations.set(path, entry.operation);
   }
 
-  for (const path of additionPaths) {
-    if (manifestOperations.get(path) !== "write") {
-      throw new Error(`Manifest does not match write payload for ${path}.`);
+  const manifestIssues: string[] = [];
+  const expectedOperations = new Map<
+    string,
+    WorkspaceManifestEntry["operation"]
+  >([
+    ...[...additionPaths].map((path) => [path, "write"] as const),
+    ...[...deletionPaths].map((path) => [path, "delete"] as const),
+  ]);
+  for (const [path, expected] of expectedOperations) {
+    const actual = manifestOperations.get(path);
+    if (actual === undefined) {
+      manifestIssues.push(`Missing ${expected} entry for ${path}.`);
+    } else if (actual !== expected) {
+      manifestIssues.push(`Expected ${expected} entry for ${path}, received ${actual}.`);
     }
   }
-  for (const path of deletionPaths) {
-    if (manifestOperations.get(path) !== "delete") {
-      throw new Error(`Manifest does not match deletion payload for ${path}.`);
+  for (const [path, operation] of manifestOperations) {
+    if (!expectedOperations.has(path)) {
+      manifestIssues.push(`Unexpected ${operation} entry for ${path}; remove it from the manifest or include its intended payload.`);
     }
+  }
+  if (manifestIssues.length > 0) {
+    throw new Error(`Manifest must match the write/delete payload exactly. ${manifestIssues.join(" ")}`);
   }
 
   validateDeclaredMigrations(input);

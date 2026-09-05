@@ -1,6 +1,6 @@
 import { getToken } from "@vercel/connect";
 import { defineTool } from "eve/tools";
-import { always } from "eve/tools/approval";
+import type { Approval } from "eve/tools/approval";
 import { Octokit } from "octokit";
 import { z } from "zod";
 
@@ -60,7 +60,8 @@ const inputSchema = z
           .strict(),
       )
       .min(1)
-      .max(MAX_PATHS),
+      .max(MAX_PATHS)
+      .describe("Exactly one write entry for each addition and one delete entry for each deletion, with no other paths."),
     expectedHead: z
       .string()
       .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i)
@@ -109,11 +110,24 @@ const inputSchema = z
     { message: "Combined addition content is too large." },
   );
 
+const workspaceMutationApproval: Approval<z.infer<typeof inputSchema>> = ({ toolInput }) => {
+  try {
+    validateWorkspaceMutation(inputSchema.parse(toolInput));
+    return "user-approval";
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Invalid workspace change.";
+    return {
+      type: "denied",
+      reason: `${detail} Correct the request and resubmit it for approval. No files were saved.`,
+    };
+  }
+};
+
 export default defineTool({
   description:
     "Apply one approval-gated, atomic set of GTM workspace file writes and deletions to the configured repository on main. Declared workflow migrations must include their generated Drizzle journal and any schema snapshot; they apply inside a short write window and every SQL hash must be present in the migration ledger before the commit. Vercel workflow changes then deploy through the repository's Git connection. Accepts organization, ICP, persona, member, root contract, and tracked root workflows/ project paths; never secrets, dependencies, or ignored runtime state. On a connected repository that has no root ORG.md yet, every change is refused unless it writes root ORG.md; the create flow's first change writes it together with AGENTS.md, CLAUDE.md, and .gitignore.",
   inputSchema,
-  approval: always(),
+  approval: workspaceMutationApproval,
   async execute(input, ctx) {
     const configuration = getConfiguration();
     if (configuration.workspace === null) {
