@@ -1,3 +1,4 @@
+import { APPROVAL_SUMMARY_MAX_LENGTH } from "./approval-summary.ts";
 import { posix } from "node:path";
 
 /** Enough for a suborganization move: fifty artifacts as delete plus write. */
@@ -103,8 +104,13 @@ export function validateWorkspacePath(
 }
 
 export function validateWorkspaceMutation<T extends WorkspaceMutation>(input: T): T {
-  if (input.summary.trim().length === 0 || input.summary.length > 500) {
-    throw new Error("Mutation summary must contain 1–500 characters.");
+  if (
+    input.summary.trim().length === 0 ||
+    input.summary.length > APPROVAL_SUMMARY_MAX_LENGTH
+  ) {
+    throw new Error(
+      `Mutation summary must contain 1–${APPROVAL_SUMMARY_MAX_LENGTH} characters.`,
+    );
   }
   if (input.message.trim().length === 0 || input.message.length > 120) {
     throw new Error("Commit message must contain 1–120 characters.");

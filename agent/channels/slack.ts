@@ -10,6 +10,7 @@ import {
   getConfiguration,
   type SlackConfiguration,
 } from "../lib/config.ts";
+import { createInputRequestedHandler } from "../lib/slack-approval-cards.ts";
 
 const configuration = getConfiguration();
 
@@ -49,6 +50,9 @@ export function createSlackChannelConfig(
   return {
     credentials: connectSlackCredentials(slack.connector),
     threadContext: { since: "last-agent-reply" },
+    // A GTM approval shows only the tool's plain-language summary with
+    // Approve and Cancel; Eve's default card would append the raw tool input.
+    events: { "input.requested": createInputRequestedHandler() },
     onAppMention(ctx, message) {
       if (!isAllowedHuman(message)) {
         return null;

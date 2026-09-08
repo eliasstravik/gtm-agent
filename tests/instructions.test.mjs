@@ -19,17 +19,27 @@ test("standing instructions define the fixed Slack and workspace mechanics", () 
     /do not.*fetch.*pull.*push/is,
     /do not modify.*before approval/i,
     /apply_gtm_workspace_changes/,
-    /approval.*how acceptance is expressed/is,
-    /after the skill.*accept.*loop.*never instead/is,
-    /two steps/i,
-    /Reply with a number/,
+    /native approval control.*accept step/is,
+    /`summary` is the entire proposal/,
+    /2,500 characters/,
+    /first line `For <root display name>:`/,
+    /last line `Approve to save, or Cancel and tell me what to change\.`/,
+    /renders only that text with Approve and Cancel/,
+    /no proposal message before the tool call/i,
+    /no numbered accept/i,
+    /contains no text and no other tool call/,
+    /denies a summary whose last line is wrong/i,
+    /split it along the skills' batching boundaries/i,
+    /Reply with a number, or type your answer\./,
     /ask_question/,
-    /commit URL.*(?:overrides|replaces|instead of).*saved to history|saved to history.*commit URL/is,
+    /then `Saved\.`/,
+    /It will be live in production in a few minutes; ask me to check\./,
+    /Report no commit URL, hash, path list, or repository reference/,
+    /approval message shows only `summary`/i,
+    /\*\*What would you like me to change\?\*\*/,
     /no remote and no repo-local Git identity/i,
     /web_search|web_fetch/,
-    /approval.*truncate/is,
-    /no durable change was made/i,
-    /GitHub commit URL/i,
+    /nothing was saved/i,
     /private.*public web search/is,
     /create.*import.*sharing.*whole-(?:repository|workspace) deletion/is,
     /\/gtm-workspace.*keyboard/is,
@@ -41,6 +51,10 @@ test("standing instructions define the fixed Slack and workspace mechanics", () 
   ]) {
     assert.match(instructions, pattern);
   }
+  assert.doesNotMatch(instructions, /two steps/i);
+  assert.doesNotMatch(instructions, /saved to history/i);
+  assert.doesNotMatch(instructions, /GitHub commit URL/i);
+  assert.doesNotMatch(instructions, /report every affected path/i);
 });
 
 test("standing instructions declare the sandbox workflow runtime and its limits", () => {
@@ -63,7 +77,13 @@ test("standing instructions declare the sandbox workflow runtime and its limits"
     /already applied/i,
     /no Vercel CLI|Vercel CLI is not/i,
     /operate_gtm_workflow/,
-    /commit.*`main`.*starts production deployment/i,
+    /Saving this also puts it live in production\./,
+    /read-only deployment action/i,
+    /`Live\.` or `Not yet live\.`/,
+    /Approve to run, or Cancel and tell me what to change\./,
+    /Approve to continue the run, or Cancel to leave it paused and tell me what to do\./,
+    /Approve to stop the run here, or Cancel to leave it paused\./,
+    /Approve to stop the run, or Cancel to leave it running\./,
     /applies accepted workflow migrations.*verifies their ledger hashes before/i,
     /exact commit SHA/i,
     /read-only run preview/i,
@@ -76,6 +96,8 @@ test("standing instructions declare the sandbox workflow runtime and its limits"
   ]) {
     assert.match(instructions, pattern);
   }
+  assert.doesNotMatch(instructions, /starts production deployment/i);
+  assert.doesNotMatch(instructions, /deploying, not live/i);
   assert.doesNotMatch(instructions, /db:studio/);
   assert.doesNotMatch(instructions, /GTM_RUN_SECRET/);
   assert.doesNotMatch(instructions, /AI_GATEWAY_API_KEY/);

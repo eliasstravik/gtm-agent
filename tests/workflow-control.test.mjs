@@ -340,3 +340,36 @@ test("status and approval never return hook tokens, input, webhook URLs, or cred
   assert.equal(resumed.status, "running");
   assert.equal(JSON.stringify(resumed).includes("hidden-token"), false);
 });
+
+test("the deployment check is read-only and reports live only for the exact commit", async () => {
+  const requests = [];
+  const control = new WorkflowControl(
+    configuration,
+    workspace,
+    dependencies(async (url, init) => {
+      requests.push([url, init]);
+      return Response.json({ head: HEAD });
+    }),
+  );
+
+  assert.deepEqual(await control.getDeployment(HEAD), { status: "live", expectedHead: HEAD });
+  assert.deepEqual(await control.getDeployment(OLD_HEAD), {
+    status: "not_live",
+    expectedHead: OLD_HEAD,
+  });
+  assert.equal(requests.length, 2);
+  for (const [url, init] of requests) {
+    assert.match(String(url), /\/api\/deployment$/);
+    assert.notEqual((init?.method ?? "GET").toUpperCase(), "POST");
+  }
+  await assert.rejects(control.getDeployment("not-a-commit"), /invalid/i);
+});
+
+test("a deployment that is not yet serving reports not live instead of failing", async () => {
+  const control = new WorkflowControl(
+    configuration,
+    workspace,
+    dependencies(async () => new Response("", { status: 503 })),
+  );
+  assert.equal((await control.getDeployment(HEAD)).status, "not_live");
+});
