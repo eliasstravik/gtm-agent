@@ -7,6 +7,7 @@ import {
   chunkForSections,
   createInputRequestedHandler,
   escapeMrkdwn,
+  renderBulletLines,
 } from "../agent/lib/slack-approval-cards.ts";
 
 const SUMMARY = [
@@ -56,7 +57,7 @@ test("a GTM approval renders only the summary with Cancel and Approve", () => {
   assert.equal(section.type, "section");
   assert.equal(section.text.type, "mrkdwn");
   assert.equal(section.text.verbatim, true);
-  assert.equal(section.text.text, escapeMrkdwn(SUMMARY));
+  assert.equal(section.text.text, escapeMrkdwn(renderBulletLines(SUMMARY)));
   assert.match(section.text.text, /&amp; forecast &lt;quarterly&gt;/);
 
   assert.equal(actions.type, "actions");
@@ -75,6 +76,18 @@ test("a GTM approval renders only the summary with Cancel and Approve", () => {
   assert.doesNotMatch(rendered, /MEMBER\.md/);
   assert.doesNotMatch(rendered, /manifest|expectedHead|Tool input/);
   assert.equal(post.text, SUMMARY);
+});
+
+test("contract bullet lines render as bullets in the section and stay plain in the fallback", () => {
+  const summary = "For Acme:\nCreate 3 ICPs:\n- SMB Law Firms (Acme)\n- SMB Real Estate (Acme)\n- SMB Car Dealers (Acme)\nAll: Swedish businesses with 1–49 employees.\nApprove to save, or Cancel and tell me what to change.";
+  const post = buildGtmApprovalPost(
+    saveRequest({ action: { ...saveRequest().action, input: { summary } } }),
+  );
+  const [section] = post.blocks;
+  assert.match(section.text.text, /\n\u2022 SMB Law Firms \(Acme\)\n\u2022 SMB Real Estate \(Acme\)\n\u2022 SMB Car Dealers \(Acme\)\n/);
+  assert.doesNotMatch(section.text.text, /^- /m);
+  assert.equal(post.text, summary);
+  assert.equal(renderBulletLines("a\n- b\n -c\n--d"), "a\n\u2022 b\n -c\n--d");
 });
 
 test("operate_gtm_workflow approvals use the same summary-only shape", () => {
