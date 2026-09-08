@@ -54,7 +54,7 @@ The agent routes each request to a named workflow instead of relying on one gian
 
 ### 💬 Keep durable changes reviewable
 
-When the connected workspace needs an update, the agent shows the complete proposal and applies it only through native approval and one atomic commit.
+When the connected workspace needs an update, the agent puts a plain-language proposal in one Slack approval message and applies it only through that native approval and one atomic commit.
 
 ## Deploy the agent and ask the first GTM question in three steps
 

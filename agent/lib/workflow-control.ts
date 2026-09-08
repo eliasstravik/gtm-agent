@@ -187,6 +187,17 @@ export class WorkflowControl {
     return { runKey, status: "started" };
   }
 
+  /** Read-only: whether the protected production project serves this workspace commit. */
+  async getDeployment(
+    expectedHead: string,
+  ): Promise<{ readonly status: "live" | "not_live"; readonly expectedHead: string }> {
+    if (!HEAD_PATTERN.test(expectedHead)) {
+      throw new Error("The expected workspace commit is invalid.");
+    }
+    const head = await this.#readProductionHead();
+    return { status: head === expectedHead ? "live" : "not_live", expectedHead };
+  }
+
   async getRun(runKey: string): Promise<SanitizedWorkflowRun> {
     validateRunKey(runKey);
     const response = await this.#workflowRequest(`/api/runs/${runKey}`, {}, [200]);

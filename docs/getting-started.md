@@ -128,7 +128,7 @@ Before any write, Eve’s native approval gate shows the summary, complete affec
 - **The agent says the workspace is not set up yet:** the connected repository has no root `ORG.md`. Ask it in Slack to set up the GTM workspace. Until that first scaffold is saved, every other workspace write is refused.
 - **The GitHub connector was not created:** create it with `vercel connect create github` or in Vercel Connect settings, grant one repository, set `GITHUB_CONNECTOR`, and redeploy.
 - **A write reports a conflict:** another writer advanced `main`. Start a fresh Slack thread so the agent reads the new HEAD.
-- **A commit succeeded but the session is stale:** use the returned GitHub commit URL as the durable result and start a fresh Slack thread.
+- **A commit succeeded but the session is stale:** the change is durable on GitHub; start a fresh Slack thread before the next change.
 - **The agent says workflow hosting is not configured:** set `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `TURSO_READ_ONLY_AUTH_TOKEN` on a deployment that already has the GitHub workspace variables, then redeploy.
 - **A Git deployment is blocked by its author:** configure the commit-author name and verified email to map to the Vercel project owner or team member, then create a fresh commit.
 - **A production workflow cannot start:** set both `GTM_WORKFLOW_VERCEL_URL` and `GTM_WORKFLOW_RUN_SECRET`, confirm the workflow project is connected to the workspace repository's `main` branch with root `workflows`, and confirm system environment variables and the Trusted Sources rule are enabled.

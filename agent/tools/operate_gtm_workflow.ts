@@ -2,6 +2,11 @@ import { defineTool } from "eve/tools";
 import type { Approval } from "eve/tools/approval";
 import { z } from "zod";
 
+import {
+  APPROVAL_SUMMARY_MAX_LENGTH,
+  type ApprovalAction,
+  describeApprovalSummaryProblem,
+} from "../lib/approval-summary.ts";
 import { getConfiguration } from "../lib/config.ts";
 import { WorkflowControl } from "../lib/workflow-control.ts";
 
@@ -29,8 +34,22 @@ const runKey = z
   .string()
   .regex(/^[0-9a-f]{32}$/)
   .describe("Stable public run key returned by start or status.");
+const summary = (closingLine: string) =>
+  z
+    .string()
+    .min(1)
+    .max(APPROVAL_SUMMARY_MAX_LENGTH)
+    .describe(
+      `The entire approval text a person sees; nothing else of this request is shown. Plain text up to 2,500 characters: first line \`For <root display name>:\`, then the plain-language proposal, then the last line \`${closingLine}\``,
+    );
 
 const inputSchema = z.discriminatedUnion("action", [
+  z
+    .object({
+      action: z.literal("deployment"),
+      expectedHead: head,
+    })
+    .strict(),
   z
     .object({
       action: z.literal("preview"),
@@ -56,7 +75,7 @@ const inputSchema = z.discriminatedUnion("action", [
         .number()
         .nonnegative()
         .describe("Projected cost in USD from the preview the user accepted; start refuses when the fresh dry run differs."),
-      summary: z.string().min(1).max(500),
+      summary: summary("Approve to run, or Cancel and tell me what to change."),
     })
     .strict(),
   z.object({ action: z.literal("status"), runKey }).strict(),
@@ -65,7 +84,7 @@ const inputSchema = z.discriminatedUnion("action", [
       action: z.literal("cancel"),
       runKey,
       reason: z.string().max(500).nullable(),
-      summary: z.string().min(1).max(500),
+      summary: summary("Approve to stop the run, or Cancel to leave it running."),
     })
     .strict(),
   z
@@ -74,23 +93,50 @@ const inputSchema = z.discriminatedUnion("action", [
       runKey,
       approved: z.boolean(),
       comment: z.string().max(500).nullable(),
-      summary: z.string().min(1).max(500),
+      summary: summary(
+        "Approve to continue the run, or Cancel to leave it paused and tell me what to do. (when approved is true) or Approve to stop the run here, or Cancel to leave it paused. (when approved is false)",
+      ),
     })
     .strict(),
 ]);
 
 type Input = z.infer<typeof inputSchema>;
 
-const operationApproval: Approval<Input> = ({ toolInput }) =>
-  toolInput?.action === "start" ||
-  toolInput?.action === "approve" ||
-  toolInput?.action === "cancel"
-    ? "user-approval"
-    : "not-applicable";
+/** The closing line an approval-gated action must carry, or null when it needs no approval. */
+export function approvalActionFor(
+  input: { readonly action?: unknown; readonly approved?: unknown } | undefined,
+): ApprovalAction | null {
+  switch (input?.action) {
+    case "start":
+      return "run-start";
+    case "cancel":
+      return "cancel-live-run";
+    case "approve":
+      return input.approved === false ? "stop-paused-run" : "checkpoint-continue";
+    default:
+      return null;
+  }
+}
+
+const operationApproval: Approval<Input> = ({ toolInput }) => {
+  const action = approvalActionFor(toolInput);
+  if (action === null) return "not-applicable";
+  const problem = describeApprovalSummaryProblem(
+    (toolInput as { summary?: unknown } | undefined)?.summary,
+    action,
+  );
+  if (problem !== null) {
+    return {
+      type: "denied",
+      reason: `${problem} Correct the request and resubmit it for approval. Nothing was started, changed, or stopped.`,
+    };
+  }
+  return "user-approval";
+};
 
 export default defineTool({
   description:
-    "Preview, start, inspect, approve, or cancel a workflow on the fixed protected Vercel production project. Preview and status are read-only. Start repeats the dry run, refuses when its rows or projected cost differ from the accepted values, and waits for the exact connected-workspace Git SHA to be live. Start, approval, and cancel require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime.",
+    "Check deployment, preview, start, inspect, approve, or cancel a workflow on the fixed protected Vercel production project. Deployment, preview, and status are read-only; deployment reports whether production serves the given workspace commit. Start repeats the dry run, refuses when its rows or projected cost differ from the accepted values, and waits for the exact connected-workspace Git SHA to be live. Start, approval, and cancel require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime.",
   inputSchema,
   approval: operationApproval,
   async execute(input, ctx) {
@@ -106,6 +152,7 @@ export default defineTool({
       configuration.workflowControl,
       configuration.workspace,
     );
+    if (input.action === "deployment") return control.getDeployment(input.expectedHead);
     if (input.action === "status") return control.getRun(input.runKey);
     if (input.action === "cancel") {
       return control.cancelRun({ reason: input.reason, runKey: input.runKey });

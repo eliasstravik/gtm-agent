@@ -6,6 +6,10 @@ import { z } from "zod";
 
 import { getConfiguration } from "../lib/config.ts";
 import {
+  APPROVAL_SUMMARY_MAX_LENGTH,
+  describeApprovalSummaryProblem,
+} from "../lib/approval-summary.ts";
+import {
   MAX_FILE_BYTES,
   MAX_PATHS,
   MAX_TOTAL_BYTES,
@@ -44,9 +48,9 @@ const inputSchema = z
     summary: z
       .string()
       .min(1)
-      .max(500)
+      .max(APPROVAL_SUMMARY_MAX_LENGTH)
       .describe(
-        "Concise human-readable summary shown in the approval request. For a Vercel workflow batch it must say that acceptance commits to main and starts production deployment, and name any destructive migration.",
+        "The entire approval text a person sees; nothing else of this request is shown. Plain text up to 2,500 characters: first line `For <root display name>:`, then the plain-language proposal naming every artifact created, changed, or removed and any destructive effect in words, then the last line `Approve to save, or Cancel and tell me what to change.` A Vercel workflow description ends with `Saving this also puts it live in production.`",
       ),
     manifest: z
       .array(
@@ -111,17 +115,25 @@ const inputSchema = z
   );
 
 const workspaceMutationApproval: Approval<z.infer<typeof inputSchema>> = ({ toolInput }) => {
+  const summaryProblem = describeApprovalSummaryProblem(
+    (toolInput as { summary?: unknown } | undefined)?.summary,
+    "save",
+  );
+  if (summaryProblem !== null) return denied(summaryProblem);
   try {
     validateWorkspaceMutation(inputSchema.parse(toolInput));
     return "user-approval";
   } catch (error) {
-    const detail = error instanceof Error ? error.message : "Invalid workspace change.";
-    return {
-      type: "denied",
-      reason: `${detail} Correct the request and resubmit it for approval. No files were saved.`,
-    };
+    return denied(error instanceof Error ? error.message : "Invalid workspace change.");
   }
 };
+
+function denied(detail: string): { type: "denied"; reason: string } {
+  return {
+    type: "denied",
+    reason: `${detail} Correct the request and resubmit it for approval. No files were saved.`,
+  };
+}
 
 export default defineTool({
   description:
