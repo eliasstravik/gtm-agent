@@ -22,6 +22,7 @@ test("standing instructions define the fixed Slack and workspace mechanics", () 
     /native approval control.*accept step/is,
     /`summary` is the entire proposal/,
     /2,500 characters/,
+    /bullet lines starting `- `/,
     /first line `For <root display name>:`/,
     /last line `Approve to save, or Cancel and tell me what to change\.`/,
     /renders only that text with Approve and Cancel/,

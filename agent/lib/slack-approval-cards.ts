@@ -22,6 +22,14 @@ export type SlackPost = {
   readonly text: string;
 };
 
+/** Renders the contract's `- ` bullet lines with a bullet glyph; everything else is untouched. */
+export function renderBulletLines(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => (line.startsWith("- ") ? `\u2022 ${line.slice(2)}` : line))
+    .join("\n");
+}
+
 /** Escapes the three characters Slack `mrkdwn` reserves. */
 export function escapeMrkdwn(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -107,7 +115,7 @@ export function buildGtmApprovalPost(request: InputRequest): SlackPost | null {
   if (approve === undefined || cancel === undefined) return null;
 
   const text = summary.trim();
-  const blocks: unknown[] = chunkForSections(escapeMrkdwn(text)).map((chunk) => ({
+  const blocks: unknown[] = chunkForSections(escapeMrkdwn(renderBulletLines(text))).map((chunk) => ({
     type: "section",
     text: { type: "mrkdwn", text: chunk, verbatim: true },
   }));
