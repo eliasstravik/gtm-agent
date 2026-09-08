@@ -3,7 +3,7 @@
   "status": "ready",
   "source": {
     "url": "https://github.com/eliasstravik/gtm-skills.git",
-    "commit": "74532bd42472749e9c95169144607f53f8e5fa09",
+    "commit": "b6867026b7646a7acb6a944be744a06807d6b4d2",
     "license": "LICENSES/gtm-skills-MIT.txt",
     "licenseSha256": "34d04d3fd8fa65074d86e9dbfa2717d9c8d0237b1218cde0ece5d80eeae6fe2d"
   },
@@ -76,7 +76,7 @@
     "gtm-workspace/references/company-data.md": "c8a7518a686b69c142433ad5ff294c691b8f2835db55b5f0f409d45eb509ec70",
     "gtm-workspace/references/contract.md": "0e514e54d49e013ac84934407c5802816cf40edb17e548c2a7bf1e7016ebedc7",
     "gtm-workspace/references/flows.md": "46cd85fc9687d01e83650c126766b5db5f3f37bc1227c088e0a71403bc7bf8cd",
-    "gtm-workspace/references/interaction.md": "3a0d96b8e21bb786f45b7fe37f49f193fb2223258528888fcc546d39689f0d9a",
+    "gtm-workspace/references/interaction.md": "dae7b5a73f21c577cc049df1ab04012862a46c33e1a1a1f5e3613f2e4e925e7a",
     "gtm-workspace/references/person-data.md": "eae2915365fc5f1e297fd4cd97cef28fa5389dd3d1a7d227dbe783618eebb534",
     "gtm-workspace/templates/AGENTS.md": "95b20b0a48da3f656210baac0b97f2c2adcf71b3e07600dd2a7966747880cd32",
     "gtm-workspace/templates/CLAUDE.md": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
