@@ -11,8 +11,7 @@ import {
   type SlackConfiguration,
 } from "../lib/config.ts";
 import { createInputRequestedHandler } from "../lib/slack-approval-cards.ts";
-import { createDiagramResultHandler } from "../lib/slack-diagram-post.ts";
-import { createDiagramMessageHandler } from "../lib/slack-diagram-message.ts";
+import { createDiagramEvents } from "../lib/slack-diagram-message.ts";
 
 const configuration = getConfiguration();
 
@@ -54,12 +53,10 @@ export function createSlackChannelConfig(
     threadContext: { since: "last-agent-reply" },
     // A GTM approval shows only the tool's plain-language summary with
     // Approve and Cancel; Eve's default card would append the raw tool input.
-    // The diagram handler uploads the workflow picture into the thread; Eve
-    // calls it as (data, channel, ctx) and the extra argument is ignored.
+    // Diagram events combine the tool result and final caption into one post.
     events: {
       "input.requested": createInputRequestedHandler(),
-      "action.result": createDiagramResultHandler(),
-      "message.completed": createDiagramMessageHandler(),
+      ...createDiagramEvents(),
     },
     onAppMention(ctx, message) {
       if (!isAllowedHuman(message)) {

@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { createDiagramResultHandler } from "../agent/lib/slack-diagram-post.ts";
+import { createDiagramEvents } from "../agent/lib/slack-diagram-message.ts";
 
 // Exercise the pinned Eve adapter, including its upload and message encoding.
 // Only the HTTP boundary is fake; a thread.post spy cannot catch lost fallbacks.
@@ -46,11 +46,15 @@ async function deliver(t, { failAt, rejectImage = false, rejectText = false } = 
     }
     throw new Error(`Unexpected API request: ${method}`);
   });
-  const channel = buildSlackBinding({ botToken: "fake-token", channelId: "C_TEST", threadTs: "123.000" });
-  const handler = createDiagramResultHandler({
+  const channel = { ...buildSlackBinding({ botToken: "fake-token", channelId: "C_TEST", threadTs: "123.000" }), state: {} };
+  const handlers = createDiagramEvents({
     fetch: async () => new Response(PNG, { headers: { "content-type": "image/png" } }),
   });
-  await handler({ result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: READY } }, channel);
+  await handlers["action.result"]({ turnId: "turn-1", result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: READY } }, channel);
+  assert.equal(calls.length, 0);
+  const complete = () => handlers["message.completed"]({ turnId: "turn-1", finishReason: "stop", message: "LinkedIn qualification workflow." }, channel);
+  if (rejectText) await assert.rejects(complete, /could not be delivered/);
+  else await complete();
   return { calls, warnings };
 }
 
@@ -61,6 +65,7 @@ test("uploads a diagram and its links into the original thread through Eve", asy
   assert.equal(complete.channel_id, "C_TEST");
   assert.equal(complete.thread_ts, "123.000");
   assert.ok(complete.initial_comment.includes(READY.links.diagram));
+  assert.match(complete.initial_comment, /^LinkedIn qualification workflow\./);
   assert.deepEqual(warnings, []);
 });
 
@@ -72,6 +77,8 @@ for (const failAt of ["files.getUploadURLExternal", "upload", "files.completeUpl
     assert.equal(post.body.channel, "C_TEST");
     assert.equal(post.body.thread_ts, "123.000");
     assert.ok(post.body.text.includes(READY.links.diagram));
+    assert.match(post.body.text, /^LinkedIn qualification workflow\./);
+    assert.equal(calls.filter(c => c.method === "chat.postMessage").length, 1);
     const blocks = JSON.parse(post.body.blocks);
     assert.equal(blocks.find(b => b.type === "image").image_url, READY.imageUrl);
     assert.ok(blocks.find(b => b.type === "section").text.text.includes(READY.links.diagram));
@@ -91,7 +98,7 @@ test("falls back to plain links when Slack also rejects the image block", async 
   assert.equal(warnings.length, 2);
 });
 
-test("reports each failed delivery attempt without leaking signed URLs or throwing", async (t) => {
+test("reports exhausted delivery without leaking signed URLs", async (t) => {
   const { warnings } = await deliver(t, { failAt: "files.getUploadURLExternal", rejectImage: true, rejectText: true });
   assert.equal(warnings.length, 3);
   assert.match(JSON.stringify(warnings), /channel_not_found/);
