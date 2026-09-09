@@ -41,6 +41,6 @@ test("derives the runs and data links", () => {
 test("formats the where-to-look block", () => {
   assert.equal(
     whereToLookText({ diagram: "https://d/1", runs: "https://r/2", data: "https://t/3" }),
-    "Diagram: <https://d/1|Open the diagram>\nRuns (needs Vercel access): <https://r/2|Open the runs>\nData: <https://t/3|Open the data>",
+    "Diagram: <https://d/1|Open the diagram>\nRuns: <https://r/2|Open the runs>\nData: <https://t/3|Open the data>",
   );
 });
