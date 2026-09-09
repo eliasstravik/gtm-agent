@@ -5,6 +5,12 @@ import type {
   ConnectedWorkspaceConfiguration,
   WorkflowControlConfiguration,
 } from "./config.ts";
+import {
+  diagramLinks,
+  tursoDashboardUrl,
+  vercelObservabilityUrl,
+  type WhereToLook,
+} from "./diagram-link.ts";
 import { assertWorkspaceCheckoutReady } from "./workspace-checkout.ts";
 
 const MAX_INPUT_BYTES = 1_000_000;
@@ -54,6 +60,30 @@ export type SanitizedWorkflowRun = {
   readonly status: string;
   readonly workflow: string;
 };
+
+export type WorkflowDiagram =
+  | {
+      readonly action: "diagram";
+      readonly status: "ready";
+      readonly workflowPath: string;
+      readonly runKey: string | null;
+      readonly url: string;
+      readonly imageUrl: string;
+      readonly expiresAt: string;
+      readonly links: WhereToLook;
+    }
+  | {
+      readonly action: "diagram";
+      readonly status: "protected";
+      readonly workflowPath: string;
+      readonly runKey: string | null;
+      readonly message: string;
+      readonly links: WhereToLook;
+    };
+
+const DIAGRAM_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+const PROTECTED_MESSAGE =
+  "The diagram link is blocked by the production project's deployment protection. In the Vercel project settings, set Vercel Authentication to preview deployments only, or attach a production custom domain, then ask again.";
 
 type WorkflowControlDependencies = {
   readonly fetch: typeof fetch;
@@ -248,6 +278,82 @@ export class WorkflowControl {
     return this.getRun(input.runKey);
   }
 
+  /**
+   * Read-only: mint a signed diagram link and probe the image route exactly as
+   * a Slack viewer's browser will, with no bearer and no OIDC token, so a
+   * protected deployment is reported instead of posting a dead link.
+   */
+  async getDiagram(input: {
+    readonly workflowPath: string;
+    readonly runKey: string | null;
+    readonly databaseUrl: string | null;
+    readonly sandbox: Sandbox;
+  }): Promise<WorkflowDiagram> {
+    if (!WORKFLOW_PATH_PATTERN.test(input.workflowPath)) {
+      throw new Error("The workflow path is invalid.");
+    }
+    if (input.runKey !== null) validateRunKey(input.runKey);
+    const packageJson = record(
+      parseJson(await readCheckoutFile(input.sandbox, this.#workspace, "workflows/package.json")),
+    );
+    const vercel = record(record(packageJson?.gtm)?.vercel);
+    const team = directString(vercel, "team");
+    const project = directString(vercel, "project");
+    let runs = team !== null && project !== null
+      ? vercelObservabilityUrl(team, project)
+      : "https://vercel.com";
+    if (input.runKey !== null) {
+      const run = await this.#getRawRun(input.runKey);
+      const runUrl = directString(run, "run_url");
+      if (runUrl !== null) runs = runUrl;
+    }
+    const exp = Math.floor((this.#dependencies.now() + DIAGRAM_LINK_TTL_MS) / 1000);
+    const claims = { path: input.workflowPath, run: input.runKey, exp };
+    const { url, imageUrl } = diagramLinks({
+      productionUrl: this.#configuration.productionUrl,
+      claims,
+      secret: this.#configuration.runSecret,
+    });
+    const links: WhereToLook = {
+      diagram: url,
+      runs,
+      data: tursoDashboardUrl(input.databaseUrl),
+    };
+    const base = {
+      action: "diagram" as const,
+      workflowPath: input.workflowPath,
+      runKey: input.runKey,
+      links,
+    };
+    const probe = await this.#dependencies.fetch(imageUrl, {
+      method: "GET",
+      redirect: "manual",
+      signal: AbortSignal.timeout(20_000),
+    });
+    const type = probe.headers.get("content-type") ?? "";
+    if (probe.status === 200 && type.startsWith("image/png")) {
+      return {
+        ...base,
+        status: "ready",
+        url,
+        imageUrl,
+        expiresAt: new Date(exp * 1000).toISOString(),
+      };
+    }
+    if (
+      probe.status === 401 ||
+      probe.status === 403 ||
+      (probe.status >= 300 && probe.status < 400) ||
+      type.includes("text/html")
+    ) {
+      return { ...base, status: "protected", message: PROTECTED_MESSAGE };
+    }
+    if (probe.status === 404) {
+      throw new Error("The production project does not know this workflow or run.");
+    }
+    throw new Error(`The diagram request failed with status ${probe.status}.`);
+  }
+
   async #waitForProductionHead(expectedHead: string): Promise<void> {
     const deadline = this.#dependencies.now() + DEPLOYMENT_TIMEOUT_MS;
     while (this.#dependencies.now() < deadline) {
@@ -349,12 +455,12 @@ async function ensureWorkflowDependencies(
   );
 }
 
-async function readWorkflowInput(
+/** The one bounded reader for a file inside the connected workspace checkout. */
+async function readCheckoutFile(
   sandbox: Sandbox,
   workspace: ConnectedWorkspaceConfiguration,
-  inputPath: string,
-): Promise<unknown> {
-  validateInputPath(inputPath);
+  relativePath: string,
+): Promise<string> {
   const script = `
 import { lstatSync, readFileSync } from "node:fs";
 const path = process.argv[1];
@@ -364,13 +470,21 @@ process.stdout.write(readFileSync(path).toString("base64"));
 `;
   const result = await runSandboxCommand(
     sandbox,
-    `set -euo pipefail\nrepo_dir="${workspace.checkoutDirectory}"\nfile="$repo_dir/${inputPath}"\nnode --input-type=module -e ${shellQuote(script)} "$file"`,
-    "GTM workflow input read",
+    `set -euo pipefail\nrepo_dir="${workspace.checkoutDirectory}"\nfile="$repo_dir/${relativePath}"\nnode --input-type=module -e ${shellQuote(script)} "$file"`,
+    "GTM workflow file read",
   );
+  return Buffer.from(result.stdout.replaceAll("\n", ""), "base64").toString("utf8");
+}
+
+async function readWorkflowInput(
+  sandbox: Sandbox,
+  workspace: ConnectedWorkspaceConfiguration,
+  inputPath: string,
+): Promise<unknown> {
+  validateInputPath(inputPath);
+  const contents = await readCheckoutFile(sandbox, workspace, inputPath);
   try {
-    return JSON.parse(
-      Buffer.from(result.stdout.replaceAll("\n", ""), "base64").toString("utf8"),
-    );
+    return JSON.parse(contents);
   } catch {
     throw new Error("The workflow input file is not valid bounded JSON.");
   }

@@ -373,3 +373,85 @@ test("a deployment that is not yet serving reports not live instead of failing",
   );
   assert.equal((await control.getDeployment(HEAD)).status, "not_live");
 });
+
+const PACKAGE_JSON = JSON.stringify({ gtm: { vercel: { team: "stravik", project: "gtm-acme-workflows" } } });
+
+function diagramSandbox() {
+  return sandboxWith((command) => {
+    if (command.includes("readFileSync(path).toString")) return ok(`${Buffer.from(PACKAGE_JSON).toString("base64")}\n`);
+    return ok();
+  });
+}
+
+function pngResponse(status = 200, type = "image/png") {
+  return new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), { status, headers: { "content-type": type } });
+}
+
+test("getDiagram mints a signed link, probes the image without credentials, and derives links", async () => {
+  const calls = [];
+  const fixedNow = 1800000000 * 1000 - 24 * 60 * 60 * 1000;
+  const controlAtFixedNow = new WorkflowControl(
+    { productionUrl: "https://acme-workflows.vercel.app", runSecret: "run-secret" },
+    workspace,
+    {
+      ...dependencies(async (url, init) => {
+        calls.push({ url: String(url), headers: init?.headers ?? {} });
+        return pngResponse();
+      }),
+      now: () => fixedNow,
+    },
+  );
+  const result = await controlAtFixedNow.getDiagram({
+    workflowPath: "account-scoring",
+    runKey: null,
+    databaseUrl: "libsql://gtm-acme-stravik.turso.io",
+    sandbox: diagramSandbox().sandbox,
+  });
+  assert.equal(result.status, "ready");
+  assert.equal(result.url, "https://acme-workflows.vercel.app/gtm/diagram/account-scoring?exp=1800000000&sig=blMhCFDtQH3hzIQsBNiSMpttas2dGVMJq5qtqtW8NAM");
+  assert.equal(result.imageUrl, "https://acme-workflows.vercel.app/api/diagram-image/account-scoring?exp=1800000000&sig=blMhCFDtQH3hzIQsBNiSMpttas2dGVMJq5qtqtW8NAM");
+  assert.equal(result.expiresAt, "2027-01-15T08:00:00.000Z");
+  assert.deepEqual(result.links, {
+    diagram: result.url,
+    runs: "https://vercel.com/stravik/gtm-acme-workflows/observability/workflows",
+    data: "https://app.turso.tech/stravik/databases/gtm-acme",
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, result.imageUrl);
+  assert.equal(calls[0].headers.authorization, undefined);
+  assert.equal(calls[0].headers["x-vercel-trusted-oidc-idp-token"], undefined);
+});
+
+test("getDiagram reports a protected deployment instead of a dead link", async () => {
+  const control = new WorkflowControl(
+    { productionUrl: "https://acme-workflows.vercel.app", runSecret: "run-secret" },
+    workspace,
+    dependencies(async () => new Response("<html>Vercel Authentication</html>", { status: 401, headers: { "content-type": "text/html" } })),
+  );
+  const result = await control.getDiagram({ workflowPath: "account-scoring", runKey: null, databaseUrl: null, sandbox: diagramSandbox().sandbox });
+  assert.equal(result.status, "protected");
+  assert.match(result.message, /deployment protection/i);
+  assert.equal(result.links.data, "https://app.turso.tech");
+});
+
+test("getDiagram uses the run's stored URL for the runs link and refuses a bad run key", async () => {
+  const runKey = "0123456789abcdef0123456789abcdef";
+  const control = new WorkflowControl(
+    { productionUrl: "https://acme-workflows.vercel.app", runSecret: "run-secret" },
+    workspace,
+    dependencies(async (url) => {
+      if (String(url).endsWith(`/api/runs/${runKey}`)) {
+        return Response.json({ run_key: runKey, workflow: "account-scoring", status: "running", run_url: "https://vercel.com/stravik/gtm-acme-workflows/observability/workflows/wrun_1" });
+      }
+      return pngResponse();
+    }),
+  );
+  const result = await control.getDiagram({ workflowPath: "account-scoring", runKey, databaseUrl: null, sandbox: diagramSandbox().sandbox });
+  assert.equal(result.status, "ready");
+  assert.equal(new URL(result.url).searchParams.get("run"), runKey);
+  assert.equal(result.links.runs, "https://vercel.com/stravik/gtm-acme-workflows/observability/workflows/wrun_1");
+  await assert.rejects(
+    control.getDiagram({ workflowPath: "account-scoring", runKey: "nope", databaseUrl: null, sandbox: diagramSandbox().sandbox }),
+    /run key is invalid/,
+  );
+});
