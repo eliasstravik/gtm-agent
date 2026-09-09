@@ -35,7 +35,7 @@ test("uploads the PNG with the where-to-look block for a ready diagram", async (
   // No headers object at all, so no credential can ride along.
   assert.equal(fetched[0].headers, undefined);
   assert.equal(posts.length, 1);
-  assert.equal(posts[0].text, "Diagram: <https://d/1|Open the diagram>\nRuns (needs Vercel access): <https://r/2|Open the runs>\nData: <https://t/3|Open the data>");
+  assert.equal(posts[0].text, "Diagram: <https://d/1|Open the diagram>\nRuns: <https://r/2|Open the runs>\nData: <https://t/3|Open the data>");
   assert.equal(posts[0].files.length, 1);
   assert.equal(posts[0].files[0].filename, "account-scoring.png");
   assert.deepEqual([...posts[0].files[0].data], [...PNG]);

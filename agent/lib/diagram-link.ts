@@ -56,7 +56,7 @@ export function tursoDashboardUrl(databaseUrl: string | null): string {
 export function whereToLookText(links: WhereToLook): string {
   return [
     `Diagram: <${links.diagram}|Open the diagram>`,
-    `Runs (needs Vercel access): <${links.runs}|Open the runs>`,
+    `Runs: <${links.runs}|Open the runs>`,
     `Data: <${links.data}|Open the data>`,
   ].join("\n");
 }
