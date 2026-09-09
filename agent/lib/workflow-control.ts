@@ -5,6 +5,12 @@ import type {
   ConnectedWorkspaceConfiguration,
   WorkflowControlConfiguration,
 } from "./config.ts";
+import {
+  diagramLinks,
+  tursoDashboardUrl,
+  vercelObservabilityUrl,
+  type WhereToLook,
+} from "./diagram-link.ts";
 import { assertWorkspaceCheckoutReady } from "./workspace-checkout.ts";
 
 const MAX_INPUT_BYTES = 1_000_000;
@@ -20,6 +26,8 @@ const INPUT_PATH_PATTERN =
   /^workflows\/data\/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,220}[A-Za-z0-9])?\.json$/;
 const HEAD_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const RUN_KEY_PATTERN = /^[0-9a-f]{32}$/;
+/** Every path `readCheckoutFile` will interpolate into its shell command. */
+const CHECKOUT_PATH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/;
 
 type Sandbox = Pick<SandboxSession, "run">;
 
@@ -54,6 +62,30 @@ export type SanitizedWorkflowRun = {
   readonly status: string;
   readonly workflow: string;
 };
+
+export type WorkflowDiagram =
+  | {
+      readonly action: "diagram";
+      readonly status: "ready";
+      readonly workflowPath: string;
+      readonly runKey: string | null;
+      readonly url: string;
+      readonly imageUrl: string;
+      readonly expiresAt: string;
+      readonly links: WhereToLook;
+    }
+  | {
+      readonly action: "diagram";
+      readonly status: "protected";
+      readonly workflowPath: string;
+      readonly runKey: string | null;
+      readonly message: string;
+      readonly links: WhereToLook;
+    };
+
+const DIAGRAM_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+const PROTECTED_MESSAGE =
+  "The diagram link is blocked by the production project's deployment protection. In the Vercel project settings, set Vercel Authentication to preview deployments only, or attach a production custom domain, then ask again.";
 
 type WorkflowControlDependencies = {
   readonly fetch: typeof fetch;
@@ -248,6 +280,90 @@ export class WorkflowControl {
     return this.getRun(input.runKey);
   }
 
+  /**
+   * Read-only: mint a signed diagram link and probe the image route exactly as
+   * a Slack viewer's browser will, with no bearer and no OIDC token, so a
+   * protected deployment is reported instead of posting a dead link.
+   */
+  async getDiagram(input: {
+    readonly workflowPath: string;
+    readonly runKey: string | null;
+    readonly databaseUrl: string | null;
+    readonly sandbox: Sandbox;
+  }): Promise<WorkflowDiagram> {
+    if (!WORKFLOW_PATH_PATTERN.test(input.workflowPath)) {
+      throw new Error("The workflow path is invalid.");
+    }
+    if (input.runKey !== null) validateRunKey(input.runKey);
+    const packageJson = record(
+      parseWorkflowPackage(
+        await readCheckoutFile(input.sandbox, this.#workspace, "workflows/package.json"),
+      ),
+    );
+    const vercel = record(record(packageJson?.gtm)?.vercel);
+    const team = directString(vercel, "team");
+    const project = directString(vercel, "project");
+    let runs = team !== null && project !== null
+      ? vercelObservabilityUrl(team, project)
+      : "https://vercel.com";
+    if (input.runKey !== null) {
+      const run = await this.#getRawRun(input.runKey);
+      const runUrl = safeRunUrl(directString(run, "run_url"));
+      if (runUrl !== null) runs = runUrl;
+    }
+    const exp = Math.floor((this.#dependencies.now() + DIAGRAM_LINK_TTL_MS) / 1000);
+    const claims = { path: input.workflowPath, run: input.runKey, exp };
+    const { url, imageUrl } = diagramLinks({
+      productionUrl: this.#configuration.productionUrl,
+      claims,
+      secret: this.#configuration.runSecret,
+    });
+    const links: WhereToLook = {
+      diagram: url,
+      runs,
+      data: tursoDashboardUrl(input.databaseUrl),
+    };
+    const base = {
+      action: "diagram" as const,
+      workflowPath: input.workflowPath,
+      runKey: input.runKey,
+      links,
+    };
+    const probe = await this.#dependencies.fetch(imageUrl, {
+      method: "GET",
+      redirect: "manual",
+      signal: AbortSignal.timeout(20_000),
+    });
+    const type = probe.headers.get("content-type") ?? "";
+    const status = probe.status;
+    await probe.body?.cancel().catch(() => {});
+    if (status === 200 && type.startsWith("image/png")) {
+      return {
+        ...base,
+        status: "ready",
+        url,
+        imageUrl,
+        expiresAt: new Date(exp * 1000).toISOString(),
+      };
+    }
+    // A 404 is decided before the protection branch: Vercel serves its own
+    // not-found page as `text/html`, and reading that as protection would send
+    // the user to the authentication settings for a workflow that is simply
+    // not deployed.
+    if (status === 404) {
+      throw new Error("The production project does not know this workflow or run.");
+    }
+    if (
+      status === 401 ||
+      status === 403 ||
+      (status >= 300 && status < 400) ||
+      type.includes("text/html")
+    ) {
+      return { ...base, status: "protected", message: PROTECTED_MESSAGE };
+    }
+    throw new Error(`The diagram request failed with status ${status}.`);
+  }
+
   async #waitForProductionHead(expectedHead: string): Promise<void> {
     const deadline = this.#dependencies.now() + DEPLOYMENT_TIMEOUT_MS;
     while (this.#dependencies.now() < deadline) {
@@ -335,6 +451,14 @@ function parseJson(text: string): unknown {
   }
 }
 
+function parseWorkflowPackage(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("The workspace's workflows/package.json is not valid JSON.");
+  }
+}
+
 async function ensureWorkflowDependencies(
   sandbox: Sandbox,
   workspace: ConnectedWorkspaceConfiguration,
@@ -349,12 +473,18 @@ async function ensureWorkflowDependencies(
   );
 }
 
-async function readWorkflowInput(
+/** The one bounded reader for a file inside the connected workspace checkout. */
+async function readCheckoutFile(
   sandbox: Sandbox,
   workspace: ConnectedWorkspaceConfiguration,
-  inputPath: string,
-): Promise<unknown> {
-  validateInputPath(inputPath);
+  relativePath: string,
+): Promise<string> {
+  if (
+    !CHECKOUT_PATH_PATTERN.test(relativePath) ||
+    relativePath.split("/").includes("..")
+  ) {
+    throw new Error("The workspace file path is invalid.");
+  }
   const script = `
 import { lstatSync, readFileSync } from "node:fs";
 const path = process.argv[1];
@@ -364,13 +494,21 @@ process.stdout.write(readFileSync(path).toString("base64"));
 `;
   const result = await runSandboxCommand(
     sandbox,
-    `set -euo pipefail\nrepo_dir="${workspace.checkoutDirectory}"\nfile="$repo_dir/${inputPath}"\nnode --input-type=module -e ${shellQuote(script)} "$file"`,
-    "GTM workflow input read",
+    `set -euo pipefail\nrepo_dir="${workspace.checkoutDirectory}"\nfile="$repo_dir/${relativePath}"\nnode --input-type=module -e ${shellQuote(script)} "$file"`,
+    "GTM workflow file read",
   );
+  return Buffer.from(result.stdout.replaceAll("\n", ""), "base64").toString("utf8");
+}
+
+async function readWorkflowInput(
+  sandbox: Sandbox,
+  workspace: ConnectedWorkspaceConfiguration,
+  inputPath: string,
+): Promise<unknown> {
+  validateInputPath(inputPath);
+  const contents = await readCheckoutFile(sandbox, workspace, inputPath);
   try {
-    return JSON.parse(
-      Buffer.from(result.stdout.replaceAll("\n", ""), "base64").toString("utf8"),
-    );
+    return JSON.parse(contents);
   } catch {
     throw new Error("The workflow input file is not valid bounded JSON.");
   }
@@ -505,6 +643,22 @@ function lastJson(output: string): Record<string, unknown> | null {
     } catch {}
   }
   return null;
+}
+
+/**
+ * A stored `run_url` comes from the workspace's own deployment and is rendered
+ * as a Slack mrkdwn link, where `<`, `>` and `|` retarget the link and rewrite
+ * its visible label. Accept it only as a plain `https://vercel.com` URL.
+ */
+function safeRunUrl(value: string | null): string | null {
+  if (value === null || /[<>|]/.test(value)) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  return url.protocol === "https:" && url.hostname === "vercel.com" ? value : null;
 }
 
 function encodeWorkflowPath(path: string): string {

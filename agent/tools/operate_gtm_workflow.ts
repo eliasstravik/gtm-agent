@@ -81,6 +81,15 @@ const inputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("status"), runKey }).strict(),
   z
     .object({
+      action: z.literal("diagram"),
+      workflowPath,
+      runKey: runKey
+        .nullable()
+        .describe("Run key to overlay status and spend, or null for the workflow shape."),
+    })
+    .strict(),
+  z
+    .object({
       action: z.literal("cancel"),
       runKey,
       reason: z.string().max(500).nullable(),
@@ -136,7 +145,7 @@ const operationApproval: Approval<Input> = ({ toolInput }) => {
 
 export default defineTool({
   description:
-    "Check deployment, preview, start, inspect, approve, or cancel a workflow on the fixed protected Vercel production project. Deployment, preview, and status are read-only; deployment reports whether production serves the given workspace commit. Start repeats the dry run, refuses when its rows or projected cost differ from the accepted values, and waits for the exact connected-workspace Git SHA to be live. Start, approval, and cancel require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime.",
+    "Check deployment, preview, start, inspect, approve, or cancel a workflow on the fixed protected Vercel production project. Deployment, preview, and status are read-only; deployment reports whether production serves the given workspace commit. Start repeats the dry run, refuses when its rows or projected cost differ from the accepted values, and waits for the exact connected-workspace Git SHA to be live. Start, approval, and cancel require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime. Diagram is read-only: it returns a signed link to the workflow picture, the image link the channel uploads, and the where-to-look links; it reports protected when deployment protection blocks the link.",
   inputSchema,
   approval: operationApproval,
   async execute(input, ctx) {
@@ -162,6 +171,15 @@ export default defineTool({
         approved: input.approved,
         comment: input.comment,
         runKey: input.runKey,
+      });
+    }
+
+    if (input.action === "diagram") {
+      return control.getDiagram({
+        workflowPath: input.workflowPath,
+        runKey: input.runKey,
+        databaseUrl: configuration.workflow?.databaseUrl ?? null,
+        sandbox: await ctx.getSandbox(),
       });
     }
 
