@@ -1,4 +1,5 @@
 import { whereToLookText, type WhereToLook } from "./diagram-link.ts";
+import { rememberDiagramLinks } from "./slack-diagram-message.ts";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 15_000;
@@ -9,13 +10,14 @@ const DOWNLOAD_TIMEOUT_MS = 15_000;
  * still satisfy this shape.
  */
 type ActionResultData = {
+  readonly turnId?: string;
   readonly result: {
     readonly kind: string;
     readonly toolName?: string;
     readonly output?: unknown;
   };
 };
-type ThreadPoster = { readonly thread: { post(input: unknown): Promise<unknown> } };
+type ThreadPoster = { readonly state?: object; readonly thread: { post(input: unknown): Promise<unknown> } };
 
 type DiagramOutput =
   | {
@@ -150,6 +152,11 @@ export function createDiagramResultHandler(options: { readonly fetch?: typeof fe
       return;
     }
     const text = whereToLookText(output.links);
+    const deliver = async (input: unknown): Promise<boolean> => {
+      if (!(await postSafely(channel, input))) return false;
+      rememberDiagramLinks(channel.state, data.turnId, output.links);
+      return true;
+    };
     let bytes: Uint8Array | null = null;
     try {
       bytes = await downloadImage(fetchImage, output.imageUrl);
@@ -157,17 +164,17 @@ export function createDiagramResultHandler(options: { readonly fetch?: typeof fe
       bytes = null;
     }
     if (bytes === null) {
-      await postSafely(channel, {
+      await deliver({
         text: `${text}\nThe picture could not be downloaded; open the diagram link instead.`,
       });
       return;
     }
     const filename = `${output.workflowPath.split("/").at(-1)}.png`;
-    if (await postSafely(channel, { text, files: [{ filename, data: bytes }] })) return;
+    if (await deliver({ text, files: [{ filename, data: bytes }] })) return;
 
     // An inline image uses chat.postMessage, so it still works when the
     // installation can post messages but cannot upload files.
-    if (await postSafely(channel, {
+    if (await deliver({
       text,
       blocks: [
         { type: "section", text: { type: "mrkdwn", text } },
@@ -175,7 +182,7 @@ export function createDiagramResultHandler(options: { readonly fetch?: typeof fe
       ],
     })) return;
 
-    await postSafely(channel, {
+    await deliver({
       text: `${text}\nThe picture could not be displayed; open the diagram link instead.`,
     });
   };

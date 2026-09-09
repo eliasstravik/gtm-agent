@@ -145,9 +145,22 @@ const operationApproval: Approval<Input> = ({ toolInput }) => {
 
 export default defineTool({
   description:
-    "Check deployment, preview, start, inspect, approve, or cancel a workflow on the fixed protected Vercel production project. Deployment, preview, and status are read-only; deployment reports whether production serves the given workspace commit. Start repeats the dry run, refuses when its rows or projected cost differ from the accepted values, and waits for the exact connected-workspace Git SHA to be live. Start, approval, and cancel require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime. Diagram is read-only: it returns a signed link to the workflow picture, the image link the channel attempts to deliver, and the where-to-look links. Ready confirms URL availability, not Slack delivery. Include the returned diagram page URL in your reply; it reports protected when deployment protection blocks the link.",
+    "Check deployment, preview, start, inspect, approve, or cancel a workflow on the fixed protected Vercel production project. Deployment, preview, and status are read-only; deployment reports whether production serves the given workspace commit. Start repeats the dry run, refuses when its rows or projected cost differ from the accepted values, and waits for the exact connected-workspace Git SHA to be live. Start, approval, and cancel require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime. Diagram is read-only: it returns a signed link to the workflow picture, the image link the channel attempts to deliver, and the where-to-look links. Ready confirms URL availability, not Slack delivery. The channel posts the image and Diagram/Runs/Data links together, with delivery fallbacks. Reply with a short caption only; do not repeat or reconstruct links. It reports protected when deployment protection blocks the link.",
   inputSchema,
   approval: operationApproval,
+  toModelOutput(output) {
+    if (typeof output === "object" && output !== null && "action" in output && output.action === "diagram") {
+      const diagram = output as Record<string, unknown>;
+      return { type: "json", value: {
+        action: "diagram",
+        status: diagram.status,
+        workflowPath: diagram.workflowPath,
+        message: diagram.status === "protected" ? diagram.message :
+          "The Slack channel owns the image and Diagram/Runs/Data links, including delivery fallbacks. Reply with a short workflow caption only. Do not repeat or reconstruct links, a Where to look block, or attachment-delivery claims. If this request only asks for links, no additional message is needed.",
+      } };
+    }
+    return { type: "json", value: output };
+  },
   async execute(input, ctx) {
     const configuration = getConfiguration();
     if (configuration.workspace === null || configuration.workflowControl === null) {
