@@ -29,7 +29,21 @@ test("read-only actions need no approval", async () => {
   assert.equal(await approve({ ...START, action: "preview", summary: undefined }), "not-applicable");
   assert.equal(await approve({ action: "status", runKey: RUN_KEY }), "not-applicable");
   assert.equal(await approve({ action: "deployment", expectedHead: HEAD }), "not-applicable");
+  assert.equal(await approve({ action: "diagram", workflowPath: "score-leads", runKey: null }), "not-applicable");
+  assert.equal(approvalActionFor({ action: "diagram" }), null);
   assert.equal(await approve(undefined), "not-applicable");
+});
+
+test("the diagram action is a read-only member of the tool schema", () => {
+  assert.deepEqual(
+    operateTool.inputSchema.parse({ action: "diagram", workflowPath: "score-leads", runKey: null }),
+    { action: "diagram", workflowPath: "score-leads", runKey: null },
+  );
+  assert.deepEqual(
+    operateTool.inputSchema.parse({ action: "diagram", workflowPath: "nested/score-leads", runKey: RUN_KEY }),
+    { action: "diagram", workflowPath: "nested/score-leads", runKey: RUN_KEY },
+  );
+  assert.throws(() => operateTool.inputSchema.parse({ action: "diagram", workflowPath: "score-leads" }));
 });
 
 test("each gated action maps to its closing line", () => {
