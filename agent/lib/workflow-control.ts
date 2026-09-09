@@ -167,6 +167,7 @@ export class WorkflowControl {
     readonly checkpoint: number | null;
     readonly expectedHead: string;
     readonly expectedProjectedCostUsd: number;
+    readonly expectedCapabilitiesHash?: string;
     readonly expectedRows: number;
     readonly inputPath: string;
     readonly workflowPath: string;
@@ -174,6 +175,11 @@ export class WorkflowControl {
   }): Promise<{ readonly runKey: string; readonly status: "started" | "run_in_progress" }> {
     validateAcceptedScope(input);
     const preview = await this.previewRun(input);
+    const capabilitiesHash = directString(record(preview.dryRun), "capabilitiesHash");
+    if ((capabilitiesHash !== null || input.expectedCapabilitiesHash !== undefined) &&
+        capabilitiesHash !== input.expectedCapabilitiesHash) {
+      throw new Error("The accepted agent capabilities differ from the fresh preview. Review tools, destinations, skills, and limits before starting. No run was started.");
+    }
     if (
       preview.rows !== input.expectedRows ||
       Math.abs(preview.projectedCostUsd - input.expectedProjectedCostUsd) >= 0.005
@@ -278,6 +284,20 @@ export class WorkflowControl {
       [200],
     );
     return this.getRun(input.runKey);
+  }
+
+  async triggerRun(input: { readonly runKey: string; readonly payload: Record<string, unknown> }) {
+    validateRunKey(input.runKey);
+    const body = JSON.stringify(input.payload);
+    if (Buffer.byteLength(body) > MAX_INPUT_BYTES) throw new Error("The callback payload exceeds the workflow input limit.");
+    const response = await this.#workflowRequest(`/api/runs/${input.runKey}/trigger`, {
+      method: "POST", body,
+    }, [200, 409]);
+    if (response.status === 409) throw new Error("This run has no pending trigger. No callback was delivered.");
+    if (record(response.body)?.accepted !== true || directString(record(response.body), "runKey") !== input.runKey) {
+      throw new Error("The workflow did not confirm the callback receipt.");
+    }
+    return { runKey: input.runKey, status: "triggered" as const };
   }
 
   /**
