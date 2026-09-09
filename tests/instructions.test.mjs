@@ -91,6 +91,8 @@ test("standing instructions declare the sandbox workflow runtime and its limits"
     /applies accepted workflow migrations.*verifies their ledger hashes before/i,
     /exact commit SHA/i,
     /read-only run preview/i,
+    /read-only diagram action/,
+    /never paste the image link/i,
     /hook token/i,
     /expose no (?:sandbox )?port|no (?:sandbox )?port/i,
     /npm run gtm -- query/,

@@ -294,7 +294,9 @@ export class WorkflowControl {
     }
     if (input.runKey !== null) validateRunKey(input.runKey);
     const packageJson = record(
-      parseJson(await readCheckoutFile(input.sandbox, this.#workspace, "workflows/package.json")),
+      parseWorkflowPackage(
+        await readCheckoutFile(input.sandbox, this.#workspace, "workflows/package.json"),
+      ),
     );
     const vercel = record(record(packageJson?.gtm)?.vercel);
     const team = directString(vercel, "team");
@@ -438,6 +440,14 @@ function parseJson(text: string): unknown {
     return JSON.parse(text);
   } catch {
     throw new Error("The workflow returned a non-JSON response.");
+  }
+}
+
+function parseWorkflowPackage(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("The workspace's workflows/package.json is not valid JSON.");
   }
 }
 

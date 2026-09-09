@@ -455,3 +455,21 @@ test("getDiagram uses the run's stored URL for the runs link and refuses a bad r
     /run key is invalid/,
   );
 });
+
+test("getDiagram names the workspace file when its package manifest is not JSON", async () => {
+  const control = new WorkflowControl(
+    { productionUrl: "https://acme-workflows.vercel.app", runSecret: "run-secret" },
+    workspace,
+    dependencies(async () => pngResponse()),
+  );
+  const { sandbox } = sandboxWith((command) => {
+    if (command.includes("readFileSync(path).toString")) {
+      return ok(`${Buffer.from("{ not json").toString("base64")}\n`);
+    }
+    return ok();
+  });
+  await assert.rejects(
+    control.getDiagram({ workflowPath: "account-scoring", runKey: null, databaseUrl: null, sandbox }),
+    /The workspace's workflows\/package\.json is not valid JSON\./,
+  );
+});
