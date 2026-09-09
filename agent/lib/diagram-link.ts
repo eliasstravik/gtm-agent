@@ -17,15 +17,21 @@ function diagramQuery(claims: DiagramClaims, secret: string): string {
   return query.toString();
 }
 
+/** Matches the run routes: each segment is escaped, the separators are kept. */
+function encodeWorkflowPath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
 export function diagramLinks(input: {
   readonly productionUrl: string;
   readonly claims: DiagramClaims;
   readonly secret: string;
 }): { url: string; imageUrl: string } {
   const query = diagramQuery(input.claims, input.secret);
+  const path = encodeWorkflowPath(input.claims.path);
   return {
-    url: `${input.productionUrl}/gtm/diagram/${input.claims.path}?${query}`,
-    imageUrl: `${input.productionUrl}/api/diagram-image/${input.claims.path}?${query}`,
+    url: `${input.productionUrl}/gtm/diagram/${path}?${query}`,
+    imageUrl: `${input.productionUrl}/api/diagram-image/${path}?${query}`,
   };
 }
 

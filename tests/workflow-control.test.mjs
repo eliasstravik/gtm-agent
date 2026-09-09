@@ -395,7 +395,7 @@ test("getDiagram mints a signed link, probes the image without credentials, and 
     workspace,
     {
       ...dependencies(async (url, init) => {
-        calls.push({ url: String(url), headers: init?.headers ?? {} });
+        calls.push({ url: String(url), headers: init?.headers });
         return pngResponse();
       }),
       now: () => fixedNow,
@@ -418,8 +418,9 @@ test("getDiagram mints a signed link, probes the image without credentials, and 
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, result.imageUrl);
-  assert.equal(calls[0].headers.authorization, undefined);
-  assert.equal(calls[0].headers["x-vercel-trusted-oidc-idp-token"], undefined);
+  // No headers object at all, so neither the run secret nor the OIDC token can
+  // ride along on a link a Slack viewer's browser will open.
+  assert.equal(calls[0].headers, undefined);
 });
 
 test("getDiagram reports a protected deployment instead of a dead link", async () => {
@@ -453,6 +454,44 @@ test("getDiagram uses the run's stored URL for the runs link and refuses a bad r
   await assert.rejects(
     control.getDiagram({ workflowPath: "account-scoring", runKey: "nope", databaseUrl: null, sandbox: diagramSandbox().sandbox }),
     /run key is invalid/,
+  );
+});
+
+test("getDiagram refuses a run URL that is not a plain vercel.com link", async () => {
+  const runKey = "0123456789abcdef0123456789abcdef";
+  const control = (runUrl) =>
+    new WorkflowControl(
+      { productionUrl: "https://acme-workflows.vercel.app", runSecret: "run-secret" },
+      workspace,
+      dependencies(async (url) => {
+        if (String(url).endsWith(`/api/runs/${runKey}`)) {
+          return Response.json({ run_key: runKey, workflow: "account-scoring", status: "running", run_url: runUrl });
+        }
+        return pngResponse();
+      }),
+    );
+  const derived = "https://vercel.com/stravik/gtm-acme-workflows/observability/workflows";
+  const hostile = [
+    "https://evil.example.com/x|Click here to sign in>",
+    "https://vercel.com.evil.example.com/x",
+    "http://vercel.com/x",
+    "javascript:alert(1)",
+  ];
+  for (const runUrl of hostile) {
+    const result = await control(runUrl).getDiagram({ workflowPath: "account-scoring", runKey, databaseUrl: null, sandbox: diagramSandbox().sandbox });
+    assert.equal(result.links.runs, derived, `refused ${runUrl}`);
+  }
+});
+
+test("getDiagram reports an HTML 404 as an unknown workflow, not as protection", async () => {
+  const control = new WorkflowControl(
+    { productionUrl: "https://acme-workflows.vercel.app", runSecret: "run-secret" },
+    workspace,
+    dependencies(async () => new Response("<html>404: NOT_FOUND</html>", { status: 404, headers: { "content-type": "text/html; charset=utf-8" } })),
+  );
+  await assert.rejects(
+    control.getDiagram({ workflowPath: "account-scoring", runKey: null, databaseUrl: null, sandbox: diagramSandbox().sandbox }),
+    /does not know this workflow or run/,
   );
 });
 

@@ -24,7 +24,7 @@ test("uploads the PNG with the where-to-look block for a ready diagram", async (
   const fetched = [];
   const handler = createDiagramResultHandler({
     fetch: async (url, init) => {
-      fetched.push({ url: String(url), headers: init?.headers ?? {} });
+      fetched.push({ url: String(url), headers: init?.headers });
       return new Response(PNG, { status: 200, headers: { "content-type": "image/png" } });
     },
   });
@@ -32,12 +32,85 @@ test("uploads the PNG with the where-to-look block for a ready diagram", async (
   await handler({ result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: READY } }, channel);
   assert.equal(fetched.length, 1);
   assert.equal(fetched[0].url, READY.imageUrl);
-  assert.equal(fetched[0].headers.authorization, undefined);
+  // No headers object at all, so no credential can ride along.
+  assert.equal(fetched[0].headers, undefined);
   assert.equal(posts.length, 1);
   assert.equal(posts[0].text, "Diagram: <https://d/1|Open the diagram>\nRuns (needs Vercel access): <https://r/2|Open the runs>\nData: <https://t/3|Open the data>");
   assert.equal(posts[0].files.length, 1);
   assert.equal(posts[0].files[0].filename, "account-scoring.png");
   assert.deepEqual([...posts[0].files[0].data], [...PNG]);
+});
+
+test("stops reading a chunked body that has no declared length once it passes the cap", async () => {
+  const CHUNK = 64 * 1024;
+  const TOTAL_CHUNKS = (5 * 1024 * 1024) / CHUNK;
+  let served = 0;
+  let cancelled = false;
+  const handler = createDiagramResultHandler({
+    fetch: async () =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            if (served === TOTAL_CHUNKS) {
+              controller.close();
+              return;
+            }
+            served += 1;
+            controller.enqueue(new Uint8Array(CHUNK));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        // A chunked response declares no content-length, so only the running
+        // byte count can stop it.
+        { status: 200, headers: { "content-type": "image/png" } },
+      ),
+  });
+  const { posts, channel } = channelSpy();
+  await handler({ result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: READY } }, channel);
+  assert.equal(cancelled, true);
+  // The reader stops just past the 4 MB cap instead of draining all 80 chunks.
+  assert.ok(served < TOTAL_CHUNKS, `served ${served} of ${TOTAL_CHUNKS} chunks`);
+  assert.ok(served * CHUNK < 4.5 * 1024 * 1024, `materialised ${served * CHUNK} bytes`);
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].text, /could not be downloaded/);
+  assert.equal(posts[0].files, undefined);
+});
+
+test("refuses a 200 that is not a PNG", async () => {
+  const handler = createDiagramResultHandler({
+    fetch: async () =>
+      new Response("<html>sign in</html>", { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }),
+  });
+  const { posts, channel } = channelSpy();
+  await handler({ result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: READY } }, channel);
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].text, /could not be downloaded/);
+  assert.equal(posts[0].files, undefined);
+});
+
+test("a failing Slack post is logged, not thrown", async () => {
+  const warnings = [];
+  const warn = console.warn;
+  console.warn = (message) => warnings.push(message);
+  try {
+    const handler = createDiagramResultHandler({
+      fetch: async () => new Response(PNG, { status: 200, headers: { "content-type": "image/png" } }),
+    });
+    const channel = { thread: { async post() { throw new Error("channel_not_found"); } } };
+    await handler({ result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: READY } }, channel);
+    await handler(
+      { result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: { ...READY, status: "protected", message: "blocked" } } },
+      channel,
+    );
+  } finally {
+    console.warn = warn;
+  }
+  assert.deepEqual(warnings, [
+    "The workflow diagram could not be posted to the Slack thread.",
+    "The workflow diagram could not be posted to the Slack thread.",
+  ]);
 });
 
 test("posts the protected message without a file", async () => {

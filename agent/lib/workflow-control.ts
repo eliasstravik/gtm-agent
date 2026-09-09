@@ -26,6 +26,8 @@ const INPUT_PATH_PATTERN =
   /^workflows\/data\/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,220}[A-Za-z0-9])?\.json$/;
 const HEAD_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const RUN_KEY_PATTERN = /^[0-9a-f]{32}$/;
+/** Every path `readCheckoutFile` will interpolate into its shell command. */
+const CHECKOUT_PATH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/;
 
 type Sandbox = Pick<SandboxSession, "run">;
 
@@ -306,7 +308,7 @@ export class WorkflowControl {
       : "https://vercel.com";
     if (input.runKey !== null) {
       const run = await this.#getRawRun(input.runKey);
-      const runUrl = directString(run, "run_url");
+      const runUrl = safeRunUrl(directString(run, "run_url"));
       if (runUrl !== null) runs = runUrl;
     }
     const exp = Math.floor((this.#dependencies.now() + DIAGRAM_LINK_TTL_MS) / 1000);
@@ -333,7 +335,9 @@ export class WorkflowControl {
       signal: AbortSignal.timeout(20_000),
     });
     const type = probe.headers.get("content-type") ?? "";
-    if (probe.status === 200 && type.startsWith("image/png")) {
+    const status = probe.status;
+    await probe.body?.cancel().catch(() => {});
+    if (status === 200 && type.startsWith("image/png")) {
       return {
         ...base,
         status: "ready",
@@ -342,18 +346,22 @@ export class WorkflowControl {
         expiresAt: new Date(exp * 1000).toISOString(),
       };
     }
+    // A 404 is decided before the protection branch: Vercel serves its own
+    // not-found page as `text/html`, and reading that as protection would send
+    // the user to the authentication settings for a workflow that is simply
+    // not deployed.
+    if (status === 404) {
+      throw new Error("The production project does not know this workflow or run.");
+    }
     if (
-      probe.status === 401 ||
-      probe.status === 403 ||
-      (probe.status >= 300 && probe.status < 400) ||
+      status === 401 ||
+      status === 403 ||
+      (status >= 300 && status < 400) ||
       type.includes("text/html")
     ) {
       return { ...base, status: "protected", message: PROTECTED_MESSAGE };
     }
-    if (probe.status === 404) {
-      throw new Error("The production project does not know this workflow or run.");
-    }
-    throw new Error(`The diagram request failed with status ${probe.status}.`);
+    throw new Error(`The diagram request failed with status ${status}.`);
   }
 
   async #waitForProductionHead(expectedHead: string): Promise<void> {
@@ -471,6 +479,12 @@ async function readCheckoutFile(
   workspace: ConnectedWorkspaceConfiguration,
   relativePath: string,
 ): Promise<string> {
+  if (
+    !CHECKOUT_PATH_PATTERN.test(relativePath) ||
+    relativePath.split("/").includes("..")
+  ) {
+    throw new Error("The workspace file path is invalid.");
+  }
   const script = `
 import { lstatSync, readFileSync } from "node:fs";
 const path = process.argv[1];
@@ -629,6 +643,22 @@ function lastJson(output: string): Record<string, unknown> | null {
     } catch {}
   }
   return null;
+}
+
+/**
+ * A stored `run_url` comes from the workspace's own deployment and is rendered
+ * as a Slack mrkdwn link, where `<`, `>` and `|` retarget the link and rewrite
+ * its visible label. Accept it only as a plain `https://vercel.com` URL.
+ */
+function safeRunUrl(value: string | null): string | null {
+  if (value === null || /[<>|]/.test(value)) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  return url.protocol === "https:" && url.hostname === "vercel.com" ? value : null;
 }
 
 function encodeWorkflowPath(path: string): string {
