@@ -1,5 +1,4 @@
 import { whereToLookText, type WhereToLook } from "./diagram-link.ts";
-import { rememberDiagramLinks } from "./slack-diagram-message.ts";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 15_000;
@@ -10,6 +9,7 @@ const DOWNLOAD_TIMEOUT_MS = 15_000;
  * still satisfy this shape.
  */
 type ActionResultData = {
+  readonly caption?: string;
   readonly turnId?: string;
   readonly result: {
     readonly kind: string;
@@ -19,7 +19,7 @@ type ActionResultData = {
 };
 type ThreadPoster = { readonly state?: object; readonly thread: { post(input: unknown): Promise<unknown> } };
 
-type DiagramOutput =
+export type DiagramOutput =
   | {
       readonly action: "diagram";
       readonly status: "ready";
@@ -34,7 +34,7 @@ type DiagramOutput =
       readonly links: WhereToLook;
     };
 
-function diagramOutput(value: unknown): DiagramOutput | null {
+export function diagramOutput(value: unknown): DiagramOutput | null {
   if (typeof value !== "object" || value === null) return null;
   const output = value as Record<string, unknown>;
   if (output.action !== "diagram") return null;
@@ -141,22 +141,17 @@ async function postSafely(channel: ThreadPoster, input: unknown): Promise<boolea
  */
 export function createDiagramResultHandler(options: { readonly fetch?: typeof fetch } = {}) {
   const fetchImage = options.fetch ?? globalThis.fetch;
-  return async (data: ActionResultData, channel: ThreadPoster): Promise<void> => {
+  return async (data: ActionResultData, channel: ThreadPoster): Promise<boolean | undefined> => {
     if (data.result.kind !== "tool-result" || data.result.toolName !== "operate_gtm_workflow") {
       return;
     }
     const output = diagramOutput(data.result.output);
     if (output === null) return;
     if (output.status === "protected") {
-      await postSafely(channel, { text: output.message });
-      return;
+      return postSafely(channel, { text: output.message });
     }
-    const text = whereToLookText(output.links);
-    const deliver = async (input: unknown): Promise<boolean> => {
-      if (!(await postSafely(channel, input))) return false;
-      rememberDiagramLinks(channel.state, data.turnId, output.links);
-      return true;
-    };
+    const text = [data.caption, whereToLookText(output.links)].filter(Boolean).join("\n\n");
+    const deliver = (input: unknown) => postSafely(channel, input);
     let bytes: Uint8Array | null = null;
     try {
       bytes = await downloadImage(fetchImage, output.imageUrl);
@@ -164,13 +159,12 @@ export function createDiagramResultHandler(options: { readonly fetch?: typeof fe
       bytes = null;
     }
     if (bytes === null) {
-      await deliver({
+      return deliver({
         text: `${text}\nThe picture could not be downloaded; open the diagram link instead.`,
       });
-      return;
     }
     const filename = `${output.workflowPath.split("/").at(-1)}.png`;
-    if (await deliver({ text, files: [{ filename, data: bytes }] })) return;
+    if (await deliver({ text, files: [{ filename, data: bytes }] })) return true;
 
     // An inline image uses chat.postMessage, so it still works when the
     // installation can post messages but cannot upload files.
@@ -180,9 +174,9 @@ export function createDiagramResultHandler(options: { readonly fetch?: typeof fe
         { type: "section", text: { type: "mrkdwn", text } },
         { type: "image", image_url: output.imageUrl, alt_text: `Workflow diagram: ${output.workflowPath}` },
       ],
-    })) return;
+    })) return true;
 
-    await deliver({
+    return deliver({
       text: `${text}\nThe picture could not be displayed; open the diagram link instead.`,
     });
   };

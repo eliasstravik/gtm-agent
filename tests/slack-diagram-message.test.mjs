@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSlackChannelConfig } from "../agent/channels/slack.ts";
-import { createDiagramResultHandler } from "../agent/lib/slack-diagram-post.ts";
-import { rememberDiagramLinks } from "../agent/lib/slack-diagram-message.ts";
+import { createDiagramEvents, rememberDiagramLinks } from "../agent/lib/slack-diagram-message.ts";
 import operateTool from "../agent/tools/operate_gtm_workflow.ts";
 
 const links = {
@@ -14,12 +13,11 @@ const output = {
   action: "diagram", status: "ready", workflowPath: "qualify",
   url: links.diagram, imageUrl: "https://workflows.example/api/diagram-image/qualify?sig=secret", links,
 };
-const messageHandler = createSlackChannelConfig({
-  allowedChannelIds: [], allowedUserIds: [], connector: "slack/gtm-agent",
-}).events["message.completed"];
-const resultHandler = createDiagramResultHandler({
+const events = createDiagramEvents({
   fetch: async () => new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } }),
 });
+const resultHandler = events["action.result"];
+const messageHandler = events["message.completed"];
 function context(reject = () => false) {
   const posts = [];
   let attempts = 0;
@@ -42,6 +40,7 @@ test("the image and links are delivered once even if the model repeats the scree
   for (const fallback of [false, true]) {
     const { channel, posts } = context(value => fallback && !!value.files);
     await resultHandler(result(), channel);
+    assert.deepEqual(posts, [], "The diagram must wait for the caption");
     // Eve persists the channel state between action and message events.
     channel.state = JSON.parse(JSON.stringify(channel.state));
     await messageHandler(completed([
@@ -51,10 +50,10 @@ test("the image and links are delivered once even if the model repeats the scree
       `Runs: <${links.runs}|Vercel workflow observability>`,
       `Data: ${links.data}`,
     ].join("\n")), channel);
-    assert.equal(posts.length, 2);
+    assert.equal(posts.length, 1);
     assert.match(posts[0].text, /Diagram:.*\nRuns:.*\nData:/);
     assert.ok(fallback ? posts[0].blocks.some(block => block.type === "image") : posts[0].files.length);
-    assert.equal(posts[1], "Qualifies LinkedIn profiles against the saved personas.");
+    assert.match(posts[0].text, /^Qualifies LinkedIn profiles against the saved personas\.\n\nDiagram:/);
     assert.doesNotMatch(JSON.stringify(channel.state), /secret|exp=/);
   }
 });
@@ -67,12 +66,11 @@ test("plain-link fallback also suppresses a links-only follow-up", async () => {
   assert.match(posts[0].text, /The picture could not be displayed/);
 });
 
-test("failed delivery does not suppress the assistant's links", async () => {
-  const { channel, posts } = context((value, attempt) => attempt <= 3);
+test("failed delivery reports failure instead of silently losing the combined message", async () => {
+  const { channel } = context(() => true);
   await resultHandler(result(), channel);
+  await assert.rejects(messageHandler(completed("Workflow caption."), channel), /could not be delivered/);
   assert.equal(channel.state.diagramLinkDelivery, undefined);
-  await messageHandler(completed(links.diagram), channel);
-  assert.deepEqual(posts, [links.diagram]);
 });
 
 test("duplicate matching ignores signature changes but preserves unrelated links and later turns", async () => {
@@ -117,4 +115,45 @@ test("the model sees caption instructions while channel handlers keep the origin
   assert.deepEqual(output, before);
   const other = { action: "deployment", status: "live", expectedHead: "a".repeat(40) };
   assert.deepEqual(await operateTool.toModelOutput(other), { type: "json", value: other });
+});
+
+test("the configured Slack channel queues diagrams and flushes when a turn has no final message", async () => {
+  const configured = createSlackChannelConfig({ allowedChannelIds: [], allowedUserIds: [], connector: "slack/gtm-agent" }).events;
+  assert.equal(typeof configured["turn.completed"], "function");
+  const { channel, posts } = context();
+  await resultHandler(result(), channel);
+  await messageHandler({ ...completed("Checking."), finishReason: "tool-calls" }, channel);
+  assert.equal(posts.length, 0);
+  await events["turn.completed"]({ turnId: "turn-1" }, channel);
+  assert.equal(posts.length, 1);
+  await events["turn.completed"]({ turnId: "turn-1" }, channel);
+  assert.equal(posts.length, 1);
+});
+
+test("a missing caption still produces exactly one diagram message", async () => {
+  const { channel, posts } = context();
+  await resultHandler(result(), channel);
+  await messageHandler(completed(null), channel);
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].text, /^Diagram:/);
+});
+
+test("two diagrams use one caption and do not leak their queue into the next turn", async () => {
+  const { channel, posts } = context();
+  await resultHandler(result(), channel);
+  await resultHandler(result({ ...output, workflowPath: "reddit", links: { ...links, diagram: "https://workflows.example/gtm/diagram/reddit" } }), channel);
+  await messageHandler(completed("Both current workflows."), channel);
+  assert.equal(posts.length, 2);
+  assert.match(posts[0].text, /^Both current workflows/);
+  assert.doesNotMatch(posts[1].text, /Both current workflows/);
+  assert.equal(channel.state.pendingDiagrams, undefined);
+  await messageHandler(completed("Next request.", "turn-2"), channel);
+  assert.equal(posts[2], "Next request.");
+});
+
+test("a protected diagram produces one useful error message without a duplicate model reply", async () => {
+  const { channel, posts } = context();
+  await resultHandler(result({ action: "diagram", status: "protected", message: "The diagram is protected.", links }), channel);
+  await messageHandler(completed("The diagram is protected."), channel);
+  assert.deepEqual(posts, [{ text: "The diagram is protected." }]);
 });

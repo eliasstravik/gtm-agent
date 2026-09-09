@@ -1,7 +1,9 @@
 import type { SlackChannelEvents, SlackChannelState } from "eve/channels/slack";
+import { createDiagramResultHandler, diagramOutput, type DiagramOutput } from "./slack-diagram-post.ts";
 import type { WhereToLook } from "./diagram-link.ts";
 
 type DiagramDeliveryState = {
+  pendingDiagrams?: { turnId: string; outputs: DiagramOutput[] };
   diagramLinkDelivery?: { turnId: string; urls: string[] };
 };
 
@@ -46,19 +48,52 @@ export function withoutDeliveredDiagramLinks(message: string, urls: string[]): s
   }).join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-/** Preserve Eve's message/typing behavior, removing only links already delivered this turn. */
-export function createDiagramMessageHandler(): NonNullable<SlackChannelEvents["message.completed"]> {
-  return async (data, channel) => {
-    if (data.finishReason === "tool-calls") {
-      channel.state.pendingToolCallMessage = data.message?.split(/\r?\n/).find(line => line.trim())?.trim() ?? null;
-      return;
+/** Queue tool results until the caption is available, then post one message per diagram. */
+export function createDiagramEvents(options: { readonly fetch?: typeof fetch } = {}): Pick<SlackChannelEvents, "action.result" | "message.completed" | "turn.completed"> {
+  const postDiagram = createDiagramResultHandler(options);
+  const flush = async (turnId: string, channel: Parameters<NonNullable<SlackChannelEvents["message.completed"]>>[1], caption: string | null): Promise<boolean> => {
+    const state = channel.state as SlackChannelState & DiagramDeliveryState;
+    const pending = state.pendingDiagrams;
+    if (!pending || pending.turnId !== turnId || pending.outputs.length === 0) return false;
+    const urls = pending.outputs.flatMap(output => Object.values(output.links).map(linkIdentity));
+    let remainingCaption = caption ? withoutDeliveredDiagramLinks(caption, urls) : "";
+    while (pending.outputs.length) {
+      const output = pending.outputs[0]!;
+      const delivered = await postDiagram({
+        turnId, caption: remainingCaption,
+        result: { kind: "tool-result", toolName: "operate_gtm_workflow", output },
+      }, channel);
+      if (!delivered) throw new Error("The workflow diagram message could not be delivered to Slack.");
+      rememberDiagramLinks(channel.state, turnId, output.links);
+      pending.outputs.shift();
+      remainingCaption = "";
     }
-    channel.state.pendingToolCallMessage = null;
-    const delivery = (channel.state as SlackChannelState & DiagramDeliveryState).diagramLinkDelivery;
-    const message = data.message && delivery?.turnId === data.turnId
-      ? withoutDeliveredDiagramLinks(data.message, delivery.urls)
-      : data.message;
-    if (message) await channel.thread.post(message);
-    else await channel.thread.startTyping();
+    delete state.pendingDiagrams;
+    return true;
+  };
+  return {
+    "action.result": async (data, channel) => {
+      if (data.result.kind !== "tool-result" || data.result.toolName !== "operate_gtm_workflow") return;
+      const output = diagramOutput(data.result.output);
+      if (!output) return;
+      const state = channel.state as SlackChannelState & DiagramDeliveryState;
+      if (state.pendingDiagrams?.turnId !== data.turnId) state.pendingDiagrams = { turnId: data.turnId, outputs: [] };
+      state.pendingDiagrams.outputs.push(output);
+    },
+    "message.completed": async (data, channel) => {
+      if (data.finishReason === "tool-calls") {
+        channel.state.pendingToolCallMessage = data.message?.split(/\r?\n/).find(line => line.trim())?.trim() ?? null;
+        return;
+      }
+      channel.state.pendingToolCallMessage = null;
+      if (await flush(data.turnId, channel, data.message)) return;
+      const delivery = (channel.state as SlackChannelState & DiagramDeliveryState).diagramLinkDelivery;
+      const message = data.message && delivery?.turnId === data.turnId
+        ? withoutDeliveredDiagramLinks(data.message, delivery.urls)
+        : data.message;
+      if (message) await channel.thread.post(message);
+      else await channel.thread.startTyping();
+    },
+    "turn.completed": async (data, channel) => { await flush(data.turnId, channel, null); },
   };
 }
