@@ -75,10 +75,17 @@ const inputSchema = z.discriminatedUnion("action", [
         .number()
         .nonnegative()
         .describe("Projected cost in USD from the preview the user accepted; start refuses when the fresh dry run differs."),
+      expectedCapabilitiesHash: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional()
+        .describe("Copy capabilitiesHash from the accepted dry run for agent workflows. Binds tools, destinations, selected skills, model, and limits; omit for older ordinary workflows."),
       summary: summary("Approve to run, or Cancel and tell me what to change."),
     })
     .strict(),
   z.object({ action: z.literal("status"), runKey }).strict(),
+  z.object({
+    action: z.literal("trigger"), runKey,
+    payload: z.record(z.string(), z.unknown()).describe("Accepted callback data for an existing run waiting for a trigger; never credential values."),
+    summary: summary("Approve to continue the run, or Cancel to leave it paused and tell me what to do."),
+  }).strict(),
   z
     .object({
       action: z.literal("diagram"),
@@ -122,6 +129,8 @@ export function approvalActionFor(
       return "cancel-live-run";
     case "approve":
       return input.approved === false ? "stop-paused-run" : "checkpoint-continue";
+    case "trigger":
+      return "checkpoint-continue";
     default:
       return null;
   }
@@ -145,6 +154,7 @@ const operationApproval: Approval<Input> = ({ toolInput }) => {
 
 export default defineTool({
   description:
+    "Trigger delivers approved callback data to an existing waiting run; it does not create an event subscription. Agent starts require the accepted preview's capabilitiesHash as expectedCapabilitiesHash. " +
     "Check deployment, preview, start, inspect, approve, or cancel a workflow on the fixed protected Vercel production project. Deployment, preview, and status are read-only; deployment reports whether production serves the given workspace commit. Start repeats the dry run, refuses when its rows or projected cost differ from the accepted values, and waits for the exact connected-workspace Git SHA to be live. Start, approval, and cancel require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime. Diagram is read-only: it returns a signed link to the workflow picture, the image link the channel attempts to deliver, and the where-to-look links. Ready confirms URL availability, not Slack delivery. The channel posts the image and Diagram/Runs/Data links together, with delivery fallbacks. The channel combines your final caption with the image and links. Write a short caption only; do not repeat or reconstruct links. It reports protected when deployment protection blocks the link.",
   inputSchema,
   approval: operationApproval,
@@ -176,6 +186,7 @@ export default defineTool({
     );
     if (input.action === "deployment") return control.getDeployment(input.expectedHead);
     if (input.action === "status") return control.getRun(input.runKey);
+    if (input.action === "trigger") return control.triggerRun({ runKey: input.runKey, payload: input.payload });
     if (input.action === "cancel") {
       return control.cancelRun({ reason: input.reason, runKey: input.runKey });
     }
@@ -210,6 +221,7 @@ export default defineTool({
           ...request,
           expectedProjectedCostUsd: input.expectedProjectedCostUsd,
           expectedRows: input.expectedRows,
+          expectedCapabilitiesHash: input.expectedCapabilitiesHash ?? undefined,
         });
   },
 });

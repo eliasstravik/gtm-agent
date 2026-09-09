@@ -49,6 +49,7 @@ test("the diagram action is a read-only member of the tool schema", () => {
 test("each gated action maps to its closing line", () => {
   assert.equal(approvalActionFor({ action: "start" }), "run-start");
   assert.equal(approvalActionFor({ action: "cancel" }), "cancel-live-run");
+  assert.equal(approvalActionFor({ action: "trigger" }), "checkpoint-continue");
   assert.equal(approvalActionFor({ action: "approve", approved: true }), "checkpoint-continue");
   assert.equal(approvalActionFor({ action: "approve", approved: false }), "stop-paused-run");
   assert.equal(approvalActionFor({ action: "preview" }), null);

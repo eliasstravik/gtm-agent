@@ -86,6 +86,48 @@ test("run preview is read-only", async () => {
   assert.equal(requests.length, 0);
 });
 
+test("agent starts bind the exact accepted capability definition", async () => {
+  for (const accepted of [undefined, "d".repeat(64), "c".repeat(64)]) {
+    let starts = 0;
+    const { sandbox } = sandboxWith((command) => {
+      if (command.includes("--dry-run")) return ok(JSON.stringify({ rows: 1, projectedCostUsd: 0.1,
+        withinCaps: true, capabilitiesHash: "c".repeat(64) }));
+      if (command.includes("readFileSync(path).toString")) return ok(Buffer.from('{"rows":[]}').toString("base64"));
+      return ok();
+    });
+    const control = new WorkflowControl(configuration, workspace, dependencies(async (url) => {
+      if (url.endsWith("/api/deployment")) return Response.json({ head: HEAD });
+      starts += 1;
+      return Response.json({ runKey: "b".repeat(32) });
+    }));
+    const request = { checkpoint: null, expectedHead: HEAD, expectedRows: 1,
+      expectedProjectedCostUsd: 0.1, expectedCapabilitiesHash: accepted,
+      inputPath: "workflows/data/proof.json", workflowPath: "proof", sandbox };
+    if (accepted === "c".repeat(64)) {
+      assert.equal((await control.startRun(request)).status, "started");
+      assert.equal(starts, 1);
+    } else {
+      await assert.rejects(control.startRun(request), /accepted agent capabilities differ/);
+      assert.equal(starts, 0);
+    }
+  }
+});
+
+test("trigger uses the fixed protected callback route and reports ended waits", async () => {
+  let conflict = false;
+  const control = new WorkflowControl(configuration, workspace, dependencies(async (url, init) => {
+    assert.equal(url, `${configuration.productionUrl}/api/runs/${"b".repeat(32)}/trigger`);
+    assert.equal(init.headers.authorization, "Bearer run-secret");
+    assert.deepEqual(JSON.parse(init.body), { event: "enriched" });
+    return conflict ? Response.json({ error: { code: "trigger_not_pending" } }, { status: 409 })
+      : Response.json({ accepted: true, runKey: "b".repeat(32) });
+  }));
+  const input = { runKey: "b".repeat(32), payload: { event: "enriched" } };
+  assert.equal((await control.triggerRun(input)).status, "triggered");
+  conflict = true;
+  await assert.rejects(control.triggerRun(input), /no pending trigger/);
+});
+
 test("start waits for the exact Git SHA and rechecks it in the run request", async () => {
   const requests = [];
   let deploymentChecks = 0;
