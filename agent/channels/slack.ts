@@ -12,6 +12,7 @@ import {
 } from "../lib/config.ts";
 import { createInputRequestedHandler } from "../lib/slack-approval-cards.ts";
 import { createDiagramResultHandler } from "../lib/slack-diagram-post.ts";
+import { createDiagramMessageHandler } from "../lib/slack-diagram-message.ts";
 
 const configuration = getConfiguration();
 
@@ -58,6 +59,7 @@ export function createSlackChannelConfig(
     events: {
       "input.requested": createInputRequestedHandler(),
       "action.result": createDiagramResultHandler(),
+      "message.completed": createDiagramMessageHandler(),
     },
     onAppMention(ctx, message) {
       if (!isAllowedHuman(message)) {
