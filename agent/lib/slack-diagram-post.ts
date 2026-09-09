@@ -102,12 +102,33 @@ async function downloadImage(
   return bytes;
 }
 
-/** A Slack post failure is ordinary; it must not escape the event handler. */
-async function postSafely(channel: ThreadPoster, input: unknown): Promise<void> {
+// Log only recognized API metadata. Error messages and response bodies may
+// contain the signed diagram URL or connector credentials.
+const SLACK_ERRORS = new Set([
+  "missing_scope", "invalid_auth", "not_authed", "token_revoked", "token_expired",
+  "channel_not_found", "not_in_channel", "is_archived", "invalid_blocks",
+  "invalid_arguments", "ratelimited", "file_uploads_disabled", "internal_error",
+]);
+const SLACK_METHODS = new Set([
+  "files.getUploadURLExternal", "files.upload", "files.completeUploadExternal", "chat.postMessage",
+]);
+
+/** Return whether Slack accepted the post so a rejected upload can fall back. */
+async function postSafely(channel: ThreadPoster, input: unknown): Promise<boolean> {
   try {
     await channel.thread.post(input);
-  } catch {
-    console.warn("The workflow diagram could not be posted to the Slack thread.");
+    return true;
+  } catch (error) {
+    const failure = error as { method?: unknown; response?: { error?: unknown }; status?: unknown } | null;
+    const code = failure?.response?.error;
+    const method = failure?.method;
+    const status = failure?.status;
+    console.warn("The workflow diagram could not be posted to the Slack thread.", {
+      code: typeof code === "string" && SLACK_ERRORS.has(code) ? code : "unknown_error",
+      method: typeof method === "string" && SLACK_METHODS.has(method) ? method : "unknown",
+      status: typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599 ? status : null,
+    });
+    return false;
   }
 }
 
@@ -142,6 +163,20 @@ export function createDiagramResultHandler(options: { readonly fetch?: typeof fe
       return;
     }
     const filename = `${output.workflowPath.split("/").at(-1)}.png`;
-    await postSafely(channel, { text, files: [{ filename, data: bytes }] });
+    if (await postSafely(channel, { text, files: [{ filename, data: bytes }] })) return;
+
+    // An inline image uses chat.postMessage, so it still works when the
+    // installation can post messages but cannot upload files.
+    if (await postSafely(channel, {
+      text,
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text } },
+        { type: "image", image_url: output.imageUrl, alt_text: `Workflow diagram: ${output.workflowPath}` },
+      ],
+    })) return;
+
+    await postSafely(channel, {
+      text: `${text}\nThe picture could not be displayed; open the diagram link instead.`,
+    });
   };
 }
