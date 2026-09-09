@@ -107,10 +107,8 @@ test("a failing Slack post is logged, not thrown", async () => {
   } finally {
     console.warn = warn;
   }
-  assert.deepEqual(warnings, [
-    "The workflow diagram could not be posted to the Slack thread.",
-    "The workflow diagram could not be posted to the Slack thread.",
-  ]);
+  assert.equal(warnings.length, 4);
+  assert.ok(warnings.every(message => message === "The workflow diagram could not be posted to the Slack thread."));
 });
 
 test("posts the protected message without a file", async () => {
