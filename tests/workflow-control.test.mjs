@@ -5,6 +5,31 @@ import { WorkflowControl } from "../agent/lib/workflow-control.ts";
 
 const HEAD = "a".repeat(40);
 const OLD_HEAD = "d".repeat(40);
+
+test("trusted preview uses deployment defaults and exposes unavailable auth checks", async () => {
+  const { sandbox, commands } = runSandbox(undefined, { paidStages: [{ label: "Score account", provider: "Gateway", model: "deepseek/deepseek-v4.1-flash", unitCostUsd: 0.1 }] });
+  const control = new WorkflowControl(configuration, workspace, dependencies(async () => { throw new Error("No paid request expected"); },
+    async () => Response.json({ ...PREFLIGHT, auth: [{ provider: "Example", status: "unavailable" }] })));
+  const result = await control.previewRun({ expectedHead: HEAD, workflowPath: "proof", inputPath: "workflows/data/proof.json", checkpoint: 1, sandbox });
+  assert.equal(result.preflight.auth[0].status, "unavailable");
+  assert.equal(result.paidStages[0].model, "deepseek/deepseek-v4.1-flash");
+  assert.ok(commands.some(command => command.includes("GTM_AGENT_BACKEND=api GTM_WORKFLOW_MODEL='deepseek/deepseek-v4.1-flash'")));
+});
+
+test("changed models, missing tables, stale preflight, and unresolved models stop paid starts", async () => {
+  const paidStages = [{ label: "Score account", provider: "Gateway", model: "deepseek/deepseek-v4.1-flash", unitCostUsd: 0.1 }];
+  for (const scenario of ["model", "table", "head", "dynamic", "runtime"]) {
+    let starts = 0;
+    const { sandbox } = runSandbox(undefined, { paidStages: scenario === "dynamic" ? [{ ...paidStages[0], model: "dynamic" }] : scenario === "runtime" ? [{ ...paidStages[0], model: "Selected at runtime" }] : paidStages });
+    const preflight = scenario === "table" ? { ...PREFLIGHT, ok: false, missing: ["Table leads"] }
+      : scenario === "head" ? { ...PREFLIGHT, head: OLD_HEAD } : PREFLIGHT;
+    const control = new WorkflowControl(configuration, workspace, dependencies(async () => { starts++; throw new Error("Paid start must not happen"); }, async () => Response.json(preflight)));
+    await assert.rejects(control.startRun({ expectedHead: HEAD, workflowPath: "proof", inputPath: "workflows/data/proof.json", checkpoint: 1,
+      sandbox, expectedRows: 1, expectedProjectedCostUsd: 0.1, expectedPaidStages: scenario === "model" ? [{ ...paidStages[0], model: "different/model" }] : paidStages }),
+      /model|table|not live/);
+    assert.equal(starts, 0);
+  }
+});
 const configuration = {
   productionUrl: "https://acme-workflows.vercel.app",
   runSecret: "run-secret",
@@ -36,9 +61,11 @@ function ok(stdout = "") {
   return { exitCode: 0, stdout, stderr: "" };
 }
 
-function dependencies(fetch) {
+const PREFLIGHT = { ok: true, head: HEAD, missing: [], auth: [], modelDefaults: { backend: "api", model: "deepseek/deepseek-v4.1-flash" } };
+
+function dependencies(fetch, preflight = async () => Response.json(PREFLIGHT)) {
   return {
-    fetch,
+    fetch: (url, init) => String(url).includes("/api/preflight/") ? preflight(url, init) : fetch(url, init),
     async getOidcToken() {
       return "oidc-token";
     },
@@ -51,7 +78,7 @@ function runSandbox(body = { rows: [{ key: "one" }] }, execution = {}) {
   return sandboxWith((command) => {
     if (command.includes("--dry-run")) {
       return ok(
-        JSON.stringify({ workflow: "proof", rows: 1, stages: ["enrich"], projectedCostUsd: 0.1, withinCaps: true, ...execution }),
+        JSON.stringify({ workflow: "proof", rows: 1, paidStages: [], stages: ["enrich"], projectedCostUsd: 0.1, withinCaps: true, ...execution }),
       );
     }
     if (command.includes("readFileSync(path).toString")) {
@@ -69,7 +96,10 @@ test("run preview is read-only", async () => {
     workspace,
     dependencies(async (...args) => {
       requests.push(args);
-      throw new Error("preview must not fetch");
+      throw new Error("preview must not call a paid route");
+    }, async (...args) => {
+      requests.push(args);
+      return Response.json(PREFLIGHT);
     }),
   );
 
@@ -83,7 +113,10 @@ test("run preview is read-only", async () => {
 
   assert.equal(preview.status, "ready");
   assert.equal(preview.head, HEAD);
-  assert.equal(requests.length, 0);
+  assert.equal(requests.length, 1);
+  assert.ok(requests[0][0].endsWith("/api/preflight/proof"));
+  assert.equal(requests[0][1].headers.authorization, "Bearer run-secret");
+  assert.equal(preview.preflight.ok, true);
 });
 
 test("start binds concurrency, rounded checkpoint, and every child batch limit", async () => {
@@ -97,7 +130,7 @@ test("start binds concurrency, rounded checkpoint, and every child batch limit",
       return Response.json({ runKey: "b".repeat(32) });
     }));
     const request = { checkpoint: shape.batch ? null : 3, expectedHead: HEAD,
-      expectedRows: 9, expectedProjectedCostUsd: 0.1, inputPath: "workflows/data/proof.json", workflowPath: "proof", sandbox };
+      expectedRows: 9, expectedPaidStages: [], expectedProjectedCostUsd: 0.1, inputPath: "workflows/data/proof.json", workflowPath: "proof", sandbox };
     const preview = await control.previewRun(request);
     assert.equal(preview.execution.checkpoint, shape.batch ? null : 4);
     const changes = [undefined, { ...preview.execution, concurrency: 1 },
@@ -135,7 +168,7 @@ test("start submits the accepted rounded checkpoint even when fewer rows remain"
     return Response.json({ runKey: "b".repeat(32) });
   }));
   const request = { checkpoint: 8, expectedHead: HEAD, expectedRows: 5,
-    expectedProjectedCostUsd: 0.1, inputPath: "workflows/data/proof.json", workflowPath: "proof", sandbox };
+    expectedPaidStages: [], expectedProjectedCostUsd: 0.1, inputPath: "workflows/data/proof.json", workflowPath: "proof", sandbox };
   const preview = await control.previewRun(request);
   assert.equal(preview.execution.checkpoint, 5);
   await control.startRun({ ...request, expectedExecution: preview.execution });
@@ -160,7 +193,7 @@ test("agent starts bind the exact accepted capability definition", async () => {
     let starts = 0;
     const { sandbox } = sandboxWith((command) => {
       if (command.includes("--dry-run")) return ok(JSON.stringify({ rows: 1, projectedCostUsd: 0.1,
-        withinCaps: true, capabilitiesHash: "c".repeat(64) }));
+        withinCaps: true, paidStages: [], capabilitiesHash: "c".repeat(64) }));
       if (command.includes("readFileSync(path).toString")) return ok(Buffer.from('{"rows":[]}').toString("base64"));
       return ok();
     });
@@ -170,7 +203,7 @@ test("agent starts bind the exact accepted capability definition", async () => {
       return Response.json({ runKey: "b".repeat(32) });
     }));
     const request = { checkpoint: null, expectedHead: HEAD, expectedRows: 1,
-      expectedProjectedCostUsd: 0.1, expectedCapabilitiesHash: accepted,
+      expectedPaidStages: [], expectedProjectedCostUsd: 0.1, expectedCapabilitiesHash: accepted,
       inputPath: "workflows/data/proof.json", workflowPath: "proof", sandbox };
     if (accepted === "c".repeat(64)) {
       assert.equal((await control.startRun(request)).status, "started");
@@ -219,7 +252,7 @@ test("start waits for the exact Git SHA and rechecks it in the run request", asy
   const started = await control.startRun({
     checkpoint: 3,
     expectedHead: HEAD,
-    expectedProjectedCostUsd: 0.1,
+    expectedPaidStages: [], expectedProjectedCostUsd: 0.1,
     expectedRows: 1,
     inputPath: "workflows/data/proof.json",
     workflowPath: "proof",
@@ -267,7 +300,7 @@ test("a deployment race starts nothing", async () => {
       control.startRun({
         checkpoint: null,
         expectedHead: HEAD,
-        expectedProjectedCostUsd: 0.1,
+        expectedPaidStages: [], expectedProjectedCostUsd: 0.1,
         expectedRows: 1,
         inputPath: "workflows/data/proof.json",
         workflowPath: "proof",
@@ -290,8 +323,9 @@ test("start refuses when the fresh dry run disagrees with the accepted rows or c
     }),
   );
   for (const accepted of [
-    { expectedRows: 2, expectedProjectedCostUsd: 0.1 },
-    { expectedRows: 1, expectedProjectedCostUsd: 0.5 },
+    { expectedRows: 2, expectedPaidStages: [], expectedProjectedCostUsd: 0.1 },
+    { expectedRows: 1, expectedPaidStages: [], expectedProjectedCostUsd: 0.5 },
+    { expectedRows: 1, expectedPaidStages: [], expectedProjectedCostUsd: 0.099 },
   ]) {
     await assert.rejects(
       () =>

@@ -10,7 +10,10 @@ export default [
       );
       t.parked();
       t.calledTool("apply_gtm_workspace_changes", { status: "pending", count: 1 });
-      t.requireInputRequest({ toolName: "apply_gtm_workspace_changes" });
+      const approval = t.requireInputRequest({ toolName: "apply_gtm_workspace_changes" });
+      t.check(approval.action.input.summary, satisfies(value => typeof value === "string" &&
+        value.length <= 2500 && value.trim().endsWith("Approve to save, or Cancel and tell me what to change.") &&
+        !/```|^\s*[{[]/m.test(value), "the complete save proposal uses bounded plain approval text and the required closing line"));
     },
   }),
   defineEval({

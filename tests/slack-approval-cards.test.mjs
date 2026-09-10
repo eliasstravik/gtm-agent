@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  approvalText,
   buildGenericInputRequestPost,
   buildGtmApprovalPost,
   chunkForSections,
@@ -9,6 +10,34 @@ import {
   escapeMrkdwn,
   renderBulletLines,
 } from "../agent/lib/slack-approval-cards.ts";
+
+test("empty, default, and JSON approval text never renders", () => {
+  for (const summary of ["", "  ", "Approve publish_source_change?", '{"private":"input"}']) {
+    const request = saveRequest({ action: { ...saveRequest().action, toolName: "publish_source_change", input: { summary } } });
+    assert.equal(approvalText(request), null);
+    assert.throws(() => buildGenericInputRequestPost(request), /plain text/);
+  }
+});
+
+test("source proposals use their summary and plans show each call and total", () => {
+  const source = saveRequest({ action: { ...saveRequest().action, toolName: "publish_source_change", input: { summary: "Publish the reviewed reminder change as a draft for review.", private: "PRIVATE" } } });
+  assert.equal(buildGtmApprovalPost(source).text, source.action.input.summary);
+  const plan = saveRequest({ action: { ...source.action, toolName: "approve_gtm_plan", input: {
+    summary: "Check and enrich one account.", totalCostUsd: 0.2,
+    calls: [{ summary: "Enrich one account for $0.20.", input: { private: "PRIVATE" } }],
+  } } });
+  const rendered = buildGtmApprovalPost(plan);
+  assert.match(rendered.text, /Enrich one account/);
+  assert.match(rendered.text, /Total estimated cost: \$0.2/);
+  assert.doesNotMatch(JSON.stringify(rendered), /PRIVATE|Tool input|container/);
+});
+
+test("a known tool without approval text uses its fixed human sentence", () => {
+  const request = saveRequest({ action: { ...saveRequest().action, toolName: "monid__monid_release_resource", input: { private: "PRIVATE" } } });
+  const post = buildGenericInputRequestPost(request);
+  assert.match(post.text, /^Release the selected provider resource/);
+  assert.doesNotMatch(JSON.stringify(post), /PRIVATE|Tool input|Approve apply_gtm/);
+});
 
 const SUMMARY = [
   "For Acme:",
@@ -158,9 +187,10 @@ test("requests without a summary, without approve and cancel, or for other tools
   assert.equal(buildGtmApprovalPost({ ...base, kind: "question" }), null);
 });
 
-test("the generic rendering keeps the prompt, a collapsed tool input, and the request's options", () => {
+test("the generic rendering keeps human text and options without tool input", () => {
   const post = buildGenericInputRequestPost(
     saveRequest({
+      prompt: "Publish the reviewed change for human review.",
       action: {
         kind: "tool-call",
         callId: "call-3",
@@ -169,12 +199,9 @@ test("the generic rendering keeps the prompt, a collapsed tool input, and the re
       },
     }),
   );
-  assert.equal(post.blocks[0].text.text, "Approve apply_gtm_workspace_changes?");
-  const container = post.blocks[1];
-  assert.equal(container.type, "container");
-  assert.equal(container.default_collapsed, true);
-  assert.match(flatten(container), /abc123/);
-  const actions = post.blocks[2];
+  assert.equal(post.blocks[0].text.text, "Publish the reviewed change for human review.");
+  assert.doesNotMatch(flatten(post), /container|Tool input|abc123/);
+  const actions = post.blocks[1];
   assert.deepEqual(
     actions.elements.map((element) => element.action_id),
     ["eve_input:tool-approval:req-1:button:0", "eve_input:tool-approval:req-1:button:1"],

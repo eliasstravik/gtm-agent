@@ -73,9 +73,24 @@ export function createDiagramEvents(options: { readonly fetch?: typeof fetch } =
   };
   return {
     "action.result": async (data, channel) => {
+      if (data.result.kind === "tool-result" && data.result.toolName === "render_gtm_draft") {
+        const output = data.result.output as { action?: string; png: string; caption: string; links: { data: string; runs: string } };
+        if (output?.action !== "draft-diagram") return;
+        const text = `${output.caption}\n\nData: <${output.links.data}|Open the data>\nRuns: <${output.links.runs}|Open the runs>`;
+        // Deliver now: an approval can arrive before message.completed.
+        await channel.thread.post({ text, files: [{ filename: "workflow-draft.png", data: Buffer.from(output.png, "base64") }] });
+        return;
+      }
       if (data.result.kind !== "tool-result" || data.result.toolName !== "operate_gtm_workflow") return;
       const output = diagramOutput(data.result.output);
       if (!output) return;
+      const caption = (data.result.output as { caption?: string }).caption;
+      if (caption) {
+        const delivered = await postDiagram({ ...data, caption }, channel);
+        if (!delivered) throw new Error("The workflow diagram message could not be delivered to Slack.");
+        rememberDiagramLinks(channel.state, data.turnId, output.links);
+        return;
+      }
       const state = channel.state as SlackChannelState & DiagramDeliveryState;
       if (state.pendingDiagrams?.turnId !== data.turnId) state.pendingDiagrams = { turnId: data.turnId, outputs: [] };
       state.pendingDiagrams.outputs.push(output);

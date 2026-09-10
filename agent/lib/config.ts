@@ -3,7 +3,7 @@ import { AI_GATEWAY_HOST, NPM_REGISTRY_HOST } from "./workflow-session.ts";
 export const WORKSPACE_BRANCH = "main" as const;
 
 /** Default AI Gateway model ID for the root agent and the source-editor subagent. */
-export const DEFAULT_AGENT_MODEL = "openai/gpt-5.6-sol";
+export const DEFAULT_AGENT_MODEL = "deepseek/deepseek-v4.1-flash";
 
 /**
  * The AI Gateway model ID for the root agent and the source-editor subagent.

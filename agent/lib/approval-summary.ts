@@ -23,6 +23,13 @@ export const APPROVAL_CLOSING_LINES = {
 
 export type ApprovalAction = keyof typeof APPROVAL_CLOSING_LINES;
 
+export function describePlainApprovalTextProblem(text: unknown): string | null {
+  if (typeof text !== "string" || !text.trim()) return "The approval text is empty.";
+  if (/^Approve\s+[^\n]+\?$/i.test(text.trim())) return "Replace the default approval prompt with a plain description of the action, effects, and cost.";
+  if (/```|^\s*[\[{]|^\s*"[^"\n]+"\s*:/m.test(text)) return "Approval text must describe the action in plain words, without JSON or code.";
+  return null;
+}
+
 /** The last non-empty line of a text, trimmed; empty when there is none. */
 export function lastLine(text: string): string {
   const lines = text
@@ -40,9 +47,9 @@ export function describeApprovalSummaryProblem(
   summary: unknown,
   action: ApprovalAction,
 ): string | null {
-  if (typeof summary !== "string" || summary.trim().length === 0) {
-    return "The approval text is empty.";
-  }
+  const plainProblem = describePlainApprovalTextProblem(summary);
+  if (plainProblem !== null) return plainProblem;
+  if (typeof summary !== "string") return "The approval text is empty.";
   if (summary.length > APPROVAL_SUMMARY_MAX_LENGTH) {
     return `The approval text is ${summary.length} characters and the limit is ${APPROVAL_SUMMARY_MAX_LENGTH}; split the proposal into parts.`;
   }

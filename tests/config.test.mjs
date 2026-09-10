@@ -645,7 +645,7 @@ test("the agent model defaults to GPT but is overridable via GTM_AGENT_MODEL", (
   try {
     delete process.env.GTM_AGENT_MODEL;
     assert.equal(resolveAgentModel(), DEFAULT_AGENT_MODEL);
-    assert.equal(DEFAULT_AGENT_MODEL, "openai/gpt-5.6-sol");
+    assert.equal(DEFAULT_AGENT_MODEL, "deepseek/deepseek-v4.1-flash");
 
     process.env.GTM_AGENT_MODEL = "";
     assert.equal(resolveAgentModel(), DEFAULT_AGENT_MODEL);

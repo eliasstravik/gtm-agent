@@ -14,6 +14,7 @@ export default defineDynamic({
         description:
           "Prepare narrowly scoped changes to this Eve agent's durable instructions or native schedules. Delegate explicit requests for persistent changes to future agent behavior or schedule timing/content. The editor works in an isolated source checkout, returns an exact diff for review, and can publish only the accepted proposal as a draft pull request. It cannot edit GTM skills, workspace content, tools, channels, sandbox policy, dependencies, publisher authority, main, or deployments.",
         model: resolveAgentModel(),
+        reasoning: "high",
       });
     },
   },

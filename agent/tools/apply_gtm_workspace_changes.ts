@@ -1,6 +1,7 @@
 import { getToken } from "@vercel/connect";
 import { defineTool } from "eve/tools";
 import type { Approval } from "eve/tools/approval";
+import { planApproval } from "../lib/approval-plan.ts";
 import { Octokit } from "octokit";
 import { z } from "zod";
 
@@ -43,7 +44,7 @@ const pathSchema = z
   .max(240)
   .describe("Repository-relative GTM workspace path from the allowed contract.");
 
-const inputSchema = z
+export const inputSchema = z
   .object({
     summary: z
       .string()
@@ -114,7 +115,8 @@ const inputSchema = z
     { message: "Combined addition content is too large." },
   );
 
-const workspaceMutationApproval: Approval<z.infer<typeof inputSchema>> = ({ toolInput }) => {
+const workspaceMutationApproval: Approval<z.infer<typeof inputSchema>> = (ctx) => {
+  const { toolInput } = ctx;
   const summaryProblem = describeApprovalSummaryProblem(
     (toolInput as { summary?: unknown } | undefined)?.summary,
     "save",
@@ -122,7 +124,7 @@ const workspaceMutationApproval: Approval<z.infer<typeof inputSchema>> = ({ tool
   if (summaryProblem !== null) return denied(summaryProblem);
   try {
     validateWorkspaceMutation(inputSchema.parse(toolInput));
-    return "user-approval";
+    return planApproval(ctx);
   } catch (error) {
     return denied(error instanceof Error ? error.message : "Invalid workspace change.");
   }

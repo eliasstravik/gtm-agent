@@ -21,7 +21,7 @@ const START = {
   inputPath: "workflows/data/leads.json",
   checkpoint: null,
   expectedRows: 120,
-  expectedProjectedCostUsd: 3,
+  expectedPaidStages: [], expectedProjectedCostUsd: 3,
   summary: "For Acme:\nRun Score new leads on 120 rows for about $3.\nApprove to run, or Cancel and tell me what to change.",
 };
 

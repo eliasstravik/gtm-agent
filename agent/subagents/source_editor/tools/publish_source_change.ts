@@ -2,6 +2,7 @@ import { getToken } from "@vercel/connect";
 import { defineTool } from "eve/tools";
 import { Octokit } from "octokit";
 import { z } from "zod";
+import { describePlainApprovalTextProblem } from "../../../lib/approval-summary.ts";
 
 import { isAllowedSourceCaller } from "../../../lib/source-authorization.ts";
 import { captureSourceProposal } from "../../../lib/source-proposal.ts";
@@ -12,7 +13,7 @@ import { requireSourceConfiguration } from "../../../lib/source-tool.ts";
 const inputSchema = z
   .object({
     title: z.string().min(1).max(120),
-    summary: z.string().min(1).max(4_000),
+    summary: z.string().min(1).max(2_500),
   })
   .strict();
 
@@ -21,8 +22,12 @@ export default defineTool({
     "After the user accepted the exact frozen preview in a prior turn, publish that unchanged proposal as one namespaced draft pull request. Input contains only the PR title and summary; repository, base, branch, paths, contents, and integrity come from trusted configuration and captured state.",
   inputSchema,
   approval: {
-    request: ({ session }) => {
+    request: ({ session, toolInput }) => {
       const source = requireSourceConfiguration();
+      const problem = describePlainApprovalTextProblem(toolInput?.summary);
+      if (problem) {
+        return { type: "denied", reason: `${problem} Correct the request and resubmit. Nothing was published.` };
+      }
       return isAllowedSourceCaller(source, session.auth.current)
         ? "user-approval"
         : { type: "denied", reason: "This Slack principal cannot publish Eve source proposals." };
