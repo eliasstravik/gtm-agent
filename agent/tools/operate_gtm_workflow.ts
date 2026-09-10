@@ -9,6 +9,7 @@ import {
 } from "../lib/approval-summary.ts";
 import { getConfiguration } from "../lib/config.ts";
 import { WorkflowControl } from "../lib/workflow-control.ts";
+import { workflowExecutionSchema } from "../lib/workflow-execution.ts";
 
 const head = z
   .string()
@@ -77,6 +78,8 @@ const inputSchema = z.discriminatedUnion("action", [
         .describe("Projected cost in USD from the preview the user accepted; start refuses when the fresh dry run differs."),
       expectedCapabilitiesHash: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional()
         .describe("Copy capabilitiesHash from the accepted dry run for agent workflows. Binds tools, destinations, selected skills, model, and limits; omit for older ordinary workflows."),
+      expectedExecution: workflowExecutionSchema.nullable().optional()
+        .describe("Copy execution from the accepted preview. Binds concurrency, rounded checkpoint, batch size/count, child workflow, result table, and parent deadline. Omit only for older previews with null execution."),
       summary: summary("Approve to run, or Cancel and tell me what to change."),
     })
     .strict(),
@@ -222,6 +225,7 @@ export default defineTool({
           expectedProjectedCostUsd: input.expectedProjectedCostUsd,
           expectedRows: input.expectedRows,
           expectedCapabilitiesHash: input.expectedCapabilitiesHash ?? undefined,
+          expectedExecution: input.expectedExecution,
         });
   },
 });

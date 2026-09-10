@@ -1,4 +1,5 @@
 import { getVercelOidcToken } from "@vercel/oidc";
+import { isDeepStrictEqual } from "node:util";
 import type { SandboxCommandResult, SandboxSession } from "eve/sandbox";
 
 import type {
@@ -12,6 +13,7 @@ import {
   type WhereToLook,
 } from "./diagram-link.ts";
 import { assertWorkspaceCheckoutReady } from "./workspace-checkout.ts";
+import { previewExecution, workflowExecutionSchema, type WorkflowExecution } from "./workflow-execution.ts";
 
 const MAX_INPUT_BYTES = 1_000_000;
 const MAX_REMOTE_RESPONSE_BYTES = 1_000_000;
@@ -35,6 +37,7 @@ export type WorkflowRunPreview = {
   readonly head: string;
   readonly status: "ready";
   readonly dryRun: unknown;
+  readonly execution: WorkflowExecution | null;
   /** Rows the dry run counted; start must carry this exact number. */
   readonly rows: number;
   /** Projected spend the dry run reported; start must carry this exact value. */
@@ -61,6 +64,16 @@ export type SanitizedWorkflowRun = {
   readonly startedAt: number;
   readonly status: string;
   readonly workflow: string;
+  readonly remainingKeys?: readonly string[];
+  readonly children?: readonly {
+    readonly runKey: string;
+    readonly workflow: string;
+    readonly status: string;
+    readonly completed: number;
+    readonly failed: number;
+    readonly costUsd: number;
+    readonly remainingKeys: readonly string[];
+  }[];
 };
 
 export type WorkflowDiagram =
@@ -160,7 +173,8 @@ export class WorkflowControl {
     if (rows === null || projectedCostUsd === null) {
       throw new Error("The workflow dry run did not report rows and projected cost.");
     }
-    return { dryRun, head: input.expectedHead, projectedCostUsd, rows, status: "ready" };
+    const execution = previewExecution(dryRun, rows, input.checkpoint);
+    return { dryRun, execution, head: input.expectedHead, projectedCostUsd, rows, status: "ready" };
   }
 
   async startRun(input: {
@@ -168,6 +182,7 @@ export class WorkflowControl {
     readonly expectedHead: string;
     readonly expectedProjectedCostUsd: number;
     readonly expectedCapabilitiesHash?: string;
+    readonly expectedExecution?: WorkflowExecution | null;
     readonly expectedRows: number;
     readonly inputPath: string;
     readonly workflowPath: string;
@@ -175,6 +190,11 @@ export class WorkflowControl {
   }): Promise<{ readonly runKey: string; readonly status: "started" | "run_in_progress" }> {
     validateAcceptedScope(input);
     const preview = await this.previewRun(input);
+    const acceptedExecution = input.expectedExecution == null ? null
+      : workflowExecutionSchema.parse(input.expectedExecution);
+    if (!isDeepStrictEqual(preview.execution, acceptedExecution)) {
+      throw new Error("The accepted execution limits differ from the fresh preview. Review concurrency, checkpoint, batch size/count, and parent deadline before starting. No run was started.");
+    }
     const capabilitiesHash = directString(record(preview.dryRun), "capabilitiesHash");
     if ((capabilitiesHash !== null || input.expectedCapabilitiesHash !== undefined) &&
         capabilitiesHash !== input.expectedCapabilitiesHash) {
@@ -612,6 +632,26 @@ function sanitizeRun(value: unknown): SanitizedWorkflowRun {
     workflow: directString(run, "workflow") ?? "",
   };
   const error = directString(record(run.error), "message") ?? directString(run, "error");
+  const remainingKeys = run.remaining_keys ?? run.remainingKeys;
+  if (Array.isArray(remainingKeys)) Object.assign(sanitized, { remainingKeys: safeRowKeys(remainingKeys) });
+  if (Array.isArray(run.children)) {
+    Object.assign(sanitized, { children: run.children.slice(0, 100).map((value) => {
+      const child = record(value);
+      const childKey = directString(child, "runKey");
+      if (child === null || childKey === null || !RUN_KEY_PATTERN.test(childKey)) {
+        throw new Error("The workflow returned an invalid child run.");
+      }
+      return {
+        runKey: childKey,
+        workflow: directString(child, "workflow") ?? "",
+        status: directString(child, "status") ?? "unknown",
+        completed: directNumber(child, "completed") ?? 0,
+        failed: directNumber(child, "failed") ?? 0,
+        costUsd: directNumber(child, "costUsd") ?? 0,
+        remainingKeys: safeRowKeys(child.remainingKeys),
+      };
+    }) });
+  }
   if (error !== null) Object.assign(sanitized, { error: error.slice(0, 1_000) });
   if (run.result !== undefined) {
     const result = redactResult(run.result);
@@ -620,6 +660,10 @@ function sanitizeRun(value: unknown): SanitizedWorkflowRun {
     }
   }
   return sanitized;
+}
+
+function safeRowKeys(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((key): key is string => typeof key === "string").slice(0, 30_000) : [];
 }
 
 function redactResult(value: unknown): unknown {

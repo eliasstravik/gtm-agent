@@ -47,11 +47,11 @@ function dependencies(fetch) {
   };
 }
 
-function runSandbox(body = { rows: [{ key: "one" }] }) {
+function runSandbox(body = { rows: [{ key: "one" }] }, execution = {}) {
   return sandboxWith((command) => {
     if (command.includes("--dry-run")) {
       return ok(
-        '{"workflow":"proof","rows":1,"stages":["enrich"],"projectedCostUsd":0.1,"withinCaps":true}\n',
+        JSON.stringify({ workflow: "proof", rows: 1, stages: ["enrich"], projectedCostUsd: 0.1, withinCaps: true, ...execution }),
       );
     }
     if (command.includes("readFileSync(path).toString")) {
@@ -84,6 +84,59 @@ test("run preview is read-only", async () => {
   assert.equal(preview.status, "ready");
   assert.equal(preview.head, HEAD);
   assert.equal(requests.length, 0);
+});
+
+test("start binds concurrency, rounded checkpoint, and every child batch limit", async () => {
+  const batch = { childWorkflow: "child", table: "leads", batchSize: 5, count: 2, timeoutMs: 60_000 };
+  for (const shape of [{ concurrency: 4 }, { concurrency: 2, batch }]) {
+    let starts = 0;
+    const { sandbox } = runSandbox(undefined, { rows: 9, ...shape });
+    const control = new WorkflowControl(configuration, workspace, dependencies(async (url) => {
+      if (url.endsWith("/api/deployment")) return Response.json({ head: HEAD });
+      starts++;
+      return Response.json({ runKey: "b".repeat(32) });
+    }));
+    const request = { checkpoint: shape.batch ? null : 3, expectedHead: HEAD,
+      expectedRows: 9, expectedProjectedCostUsd: 0.1, inputPath: "workflows/data/proof.json", workflowPath: "proof", sandbox };
+    const preview = await control.previewRun(request);
+    assert.equal(preview.execution.checkpoint, shape.batch ? null : 4);
+    const changes = [undefined, { ...preview.execution, concurrency: 1 },
+      { ...preview.execution, checkpoint: 8 }];
+    if (shape.batch) for (const [key, value] of Object.entries({ batchSize: 4, count: 3, timeoutMs: 90_000, childWorkflow: "other", table: "other" })) {
+      changes.push({ ...preview.execution, batch: { ...batch, [key]: value } });
+    }
+    for (const expectedExecution of changes) {
+      await assert.rejects(control.startRun({ ...request, expectedExecution }), /accepted execution limits differ/);
+    }
+    assert.equal(starts, 0);
+    assert.equal((await control.startRun({ ...request, expectedExecution: preview.execution })).status, "started");
+    assert.equal(starts, 1);
+  }
+});
+
+test("batch preview rejects checkpoints and malformed limits without starting", async () => {
+  for (const shape of [
+    { concurrency: 0 },
+    { concurrency: 17 },
+    { concurrency: 2, batch: { childWorkflow: "child", table: "leads", batchSize: 5, count: 2, timeoutMs: 60_000 } },
+  ]) {
+    const { sandbox } = runSandbox(undefined, shape);
+    const control = new WorkflowControl(configuration, workspace, dependencies(() => { throw new Error("unexpected fetch"); }));
+    await assert.rejects(control.previewRun({ checkpoint: 3, expectedHead: HEAD, inputPath: "workflows/data/proof.json", workflowPath: "proof", sandbox }));
+  }
+});
+
+test("parent status and cancellation retain child receipts while dropping private fields", async () => {
+  const child = { runKey: "c".repeat(32), workflow: "child", status: "cancelling", completed: 2, failed: 1, costUsd: 0.3, remainingKeys: ["four"] };
+  const control = new WorkflowControl(configuration, workspace, dependencies(async () => Response.json({
+    runKey: "b".repeat(32), status: "cancelling", remaining_keys: ["four", "five"],
+    children: [{ ...child, input: "PRIVATE", trigger_token: "PRIVATE", webhook_url: "PRIVATE", runId: "PRIVATE" }],
+  })));
+  for (const result of [await control.getRun("b".repeat(32)), await control.cancelRun({ runKey: "b".repeat(32), reason: null })]) {
+    assert.deepEqual(result.children, [child]);
+    assert.deepEqual(result.remainingKeys, ["four", "five"]);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE/);
+  }
 });
 
 test("agent starts bind the exact accepted capability definition", async () => {

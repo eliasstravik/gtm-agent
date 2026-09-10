@@ -5,6 +5,3 @@ minimumReleaseAgeExclude:
   - ai
   - eve
   - workflow
-
-patchedDependencies:
-  eve@0.49.1: patches/eve@0.49.1.patch

@@ -74,7 +74,6 @@ Vercel supplies `VERCEL_GIT_COMMIT_SHA`; local tests may use
 caller identity, deployed revision, current `main`, allowed paths, frozen diff,
 or approval identity does not match.
 
-The official Eve production package is still unreleased. This implementation is
-an intentionally narrow application-owned bridge following the upstream design.
-Reassess it when Eve ships the production package; do not silently expand its
-paths or authority in the meantime.
+Eve 0.52.5 includes upstream source-editing support. This deployment retains its
+application-owned editor and the boundaries above. Adopting the upstream editor
+requires a separate review of its permissions and approval flow.
