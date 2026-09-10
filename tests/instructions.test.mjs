@@ -139,3 +139,14 @@ test("agent-source changes stay outside the workspace writer", () => {
     assert.match(instructions, pattern);
   }
 });
+
+test("host capabilities have a resolvable reference, an exact pin, and bounded change routes", async () => {
+  const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const reference = await readFile(new URL("../agent/skills/gtm-workflow/references/eve.md", import.meta.url), "utf8");
+  assert.ok(instructions.includes(`This host pins \`eve\` to \`${pkg.dependencies.eve}\``));
+  assert.match(instructions, /Before answering any question about your own schedules, memory, connections, channels, tools, or browsing, read.*references\/eve\.md/);
+  assert.match(reference, /not a declaration that the host runs that version/);
+  assert.match(instructions, /instructions and native schedule changes through `source_editor`.*all other agent-source changes require an external coding session and reviewed pull request/);
+  assert.match(instructions, /copy the preview's `execution` into `expectedExecution`/);
+  assert.match(instructions, /waiting hosted run.*previous deployment.*cancellation first/);
+});

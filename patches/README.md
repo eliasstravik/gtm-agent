@@ -1,4 +1,4 @@
-# Eve 0.49.1 compatibility patch
+# Eve workflow discovery
 
 Eve's authored workflow discovery scans the application root for `use step`
 and `use workflow` directives. This also discovers the vendored GTM workflow
@@ -7,10 +7,9 @@ and importing database dependencies that belong to generated workflow projects.
 The build succeeds, but the deployed agent fails to start with
 `ERR_MODULE_NOT_FOUND: drizzle-orm`.
 
-The patch stops discovery inside directories containing `SKILL.md`. Their source
-files remain available as skill assets. Authored step modules outside skill
-directories remain discoverable. No vendored skill files are modified.
+Eve 0.52.3 switched to bundling workflows reachable from the agent. The 0.52.5
+upgrade removes the application-root scanner and the 0.49.1 patch. Vendored
+templates remain skill assets and require no patch.
 
-`tests/workflow-discovery.test.mjs` exercises the installed Eve implementation
-against this repository and an isolated fixture. Reassess this patch when
-upgrading Eve; remove it when upstream discovery excludes skill assets.
+`tests/workflow-discovery.test.mjs` verifies reachable authored steps and excluded
+skill assets against the installed Eve compiler.
