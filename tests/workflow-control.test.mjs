@@ -126,6 +126,22 @@ test("batch preview rejects checkpoints and malformed limits without starting", 
   }
 });
 
+test("start submits the accepted rounded checkpoint even when fewer rows remain", async () => {
+  const { sandbox } = runSandbox(undefined, { rows: 5, concurrency: 4 });
+  let startUrl;
+  const control = new WorkflowControl(configuration, workspace, dependencies(async (url) => {
+    if (url.endsWith("/api/deployment")) return Response.json({ head: HEAD });
+    startUrl = url;
+    return Response.json({ runKey: "b".repeat(32) });
+  }));
+  const request = { checkpoint: 8, expectedHead: HEAD, expectedRows: 5,
+    expectedProjectedCostUsd: 0.1, inputPath: "workflows/data/proof.json", workflowPath: "proof", sandbox };
+  const preview = await control.previewRun(request);
+  assert.equal(preview.execution.checkpoint, 5);
+  await control.startRun({ ...request, expectedExecution: preview.execution });
+  assert.equal(startUrl, `${configuration.productionUrl}/api/run/proof?checkpoint=5`);
+});
+
 test("parent status and cancellation retain child receipts while dropping private fields", async () => {
   const child = { runKey: "c".repeat(32), workflow: "child", status: "cancelling", completed: 2, failed: 1, costUsd: 0.3, remainingKeys: ["four"] };
   const control = new WorkflowControl(configuration, workspace, dependencies(async () => Response.json({

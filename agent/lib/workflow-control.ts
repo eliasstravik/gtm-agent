@@ -215,7 +215,8 @@ export class WorkflowControl {
       input.inputPath,
     );
     const path = `/api/run/${encodeWorkflowPath(input.workflowPath)}`;
-    const suffix = input.checkpoint === null ? "" : `?checkpoint=${input.checkpoint}`;
+    const checkpoint = preview.execution === null ? input.checkpoint : preview.execution.checkpoint;
+    const suffix = checkpoint === null ? "" : `?checkpoint=${checkpoint}`;
     const response = await this.#workflowRequest(
       `${path}${suffix}`,
       {
