@@ -15,6 +15,41 @@ export function resolveAgentModel(): string {
   return present(process.env.GTM_AGENT_MODEL) ?? DEFAULT_AGENT_MODEL;
 }
 
+/** AI SDK reasoning effort levels Eve forwards to the model call. */
+export const AGENT_REASONING_LEVELS = [
+  "provider-default",
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const;
+
+export type AgentReasoning = (typeof AGENT_REASONING_LEVELS)[number];
+
+/**
+ * Default reasoning effort for the root agent and the source-editor subagent.
+ * Low keeps every step short: the agent's work is mostly tool orchestration
+ * over explicit instructions, and each Slack turn runs dozens of steps, so
+ * per-step reasoning time dominates how long the user waits.
+ */
+export const DEFAULT_AGENT_REASONING: AgentReasoning = "low";
+
+export const AGENT_REASONING_ERROR = `GTM_AGENT_REASONING must be one of ${AGENT_REASONING_LEVELS.join(", ")}.`;
+
+/** Reasoning effort override, validated so a typo fails at load, not per turn. */
+export function resolveAgentReasoning(): AgentReasoning {
+  const value = present(process.env.GTM_AGENT_REASONING);
+  if (value === undefined) {
+    return DEFAULT_AGENT_REASONING;
+  }
+  if (!(AGENT_REASONING_LEVELS as readonly string[]).includes(value)) {
+    throw new Error(AGENT_REASONING_ERROR);
+  }
+  return value as AgentReasoning;
+}
+
 export const CONFIGURATION_ERROR =
   "GitHub workspace configuration is incomplete: set both GITHUB_CONNECTOR and GTM_WORKSPACE_REPOSITORY, or unset both for Slack-only mode.";
 export const WORKSPACE_REPOSITORY_SELF_ERROR =

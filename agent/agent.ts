@@ -1,9 +1,9 @@
 import { defineAgent } from "eve";
 
-import { resolveAgentModel } from "./lib/config.ts";
+import { resolveAgentModel, resolveAgentReasoning } from "./lib/config.ts";
 
 export default defineAgent({
   model: resolveAgentModel(),
-  reasoning: "high",
+  reasoning: resolveAgentReasoning(),
   build: { externalDependencies: ["@resvg/resvg-js"] },
 });
