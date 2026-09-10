@@ -1,5 +1,6 @@
 import { defineTool } from "eve/tools";
 import type { Approval } from "eve/tools/approval";
+import { planApproval } from "../lib/approval-plan.ts";
 import { z } from "zod";
 
 import {
@@ -10,6 +11,7 @@ import {
 import { getConfiguration } from "../lib/config.ts";
 import { WorkflowControl } from "../lib/workflow-control.ts";
 import { workflowExecutionSchema } from "../lib/workflow-execution.ts";
+import { paidStagesSchema } from "../lib/workflow-preflight.ts";
 
 const head = z
   .string()
@@ -44,7 +46,7 @@ const summary = (closingLine: string) =>
       `The entire approval text a person sees; nothing else of this request is shown. Plain text up to 2,500 characters: first line \`For <root display name>:\`, then the plain-language proposal, then the last line \`${closingLine}\``,
     );
 
-const inputSchema = z.discriminatedUnion("action", [
+export const inputSchema = z.discriminatedUnion("action", [
   z
     .object({
       action: z.literal("deployment"),
@@ -72,6 +74,7 @@ const inputSchema = z.discriminatedUnion("action", [
         .int()
         .nonnegative()
         .describe("Row count from the preview the user accepted; start refuses when the fresh dry run differs."),
+      expectedPaidStages: paidStagesSchema.describe("Copy the accepted preview's paidStages exactly, including every provider, model, and unit cost."),
       expectedProjectedCostUsd: z
         .number()
         .nonnegative()
@@ -93,6 +96,7 @@ const inputSchema = z.discriminatedUnion("action", [
     .object({
       action: z.literal("diagram"),
       workflowPath,
+      caption: z.string().trim().min(1).max(500).optional().describe("One-line caption to post with the picture immediately. After the deployment watch succeeds, use Live. before proposing the smoke run."),
       runKey: runKey
         .nullable()
         .describe("Run key to overlay status and spend, or null for the workflow shape."),
@@ -139,7 +143,8 @@ export function approvalActionFor(
   }
 }
 
-const operationApproval: Approval<Input> = ({ toolInput }) => {
+const operationApproval: Approval<Input> = (ctx) => {
+  const { toolInput } = ctx;
   const action = approvalActionFor(toolInput);
   if (action === null) return "not-applicable";
   const problem = describeApprovalSummaryProblem(
@@ -152,7 +157,7 @@ const operationApproval: Approval<Input> = ({ toolInput }) => {
       reason: `${problem} Correct the request and resubmit it for approval. Nothing was started, changed, or stopped.`,
     };
   }
-  return "user-approval";
+  return planApproval(ctx);
 };
 
 export default defineTool({
@@ -168,7 +173,8 @@ export default defineTool({
         action: "diagram",
         status: diagram.status,
         workflowPath: diagram.workflowPath,
-        message: diagram.status === "protected" ? diagram.message :
+        message: diagram.status === "protected" ? diagram.message : diagram.caption ?
+          "The caption is already supplied for immediate channel delivery with the picture and links. Do not send a second caption or links; continue with the requested next step." :
           "The Slack channel owns the image and Diagram/Runs/Data links, including delivery fallbacks. The channel combines your final caption with the image and links. Write a short workflow caption only. Do not repeat or reconstruct links, a Where to look block, or attachment-delivery claims. If this request only asks for links, no additional message is needed.",
       } };
     }
@@ -202,12 +208,13 @@ export default defineTool({
     }
 
     if (input.action === "diagram") {
-      return control.getDiagram({
+      const diagram = await control.getDiagram({
         workflowPath: input.workflowPath,
         runKey: input.runKey,
         databaseUrl: configuration.workflow?.databaseUrl ?? null,
         sandbox: await ctx.getSandbox(),
       });
+      return { ...diagram, ...(input.caption ? { caption: input.caption } : {}) };
     }
 
     const sandbox = await ctx.getSandbox();
@@ -224,6 +231,7 @@ export default defineTool({
           ...request,
           expectedProjectedCostUsd: input.expectedProjectedCostUsd,
           expectedRows: input.expectedRows,
+          expectedPaidStages: input.expectedPaidStages,
           expectedCapabilitiesHash: input.expectedCapabilitiesHash ?? undefined,
           expectedExecution: input.expectedExecution,
         });

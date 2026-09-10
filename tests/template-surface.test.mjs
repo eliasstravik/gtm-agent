@@ -22,7 +22,7 @@ test("agent selects a configurable, GPT-default model and official minimal Slack
   assert.match(agent, /resolveAgentModel\(\)/);
   assert.doesNotMatch(agent, /"anthropic\/|"openai\//);
   assert.match(config, /GTM_AGENT_MODEL/);
-  assert.match(config, /DEFAULT_AGENT_MODEL\s*=\s*"openai\/gpt-5.6-sol"/);
+  assert.match(config, /DEFAULT_AGENT_MODEL\s*=\s*"deepseek\/deepseek-v4.1-flash"/);
   assert.match(slack, /connectSlackCredentials/);
   assert.match(slack, /slackChannel/);
   assert.match(slack, /getConfiguration/);
@@ -53,8 +53,12 @@ test("the sole authored write tool is approval-gated and repository-bound", asyn
   const tools = await readdir(new URL("agent/tools/", root));
   assert.deepEqual(tools.sort(), [
     "apply_gtm_workspace_changes.ts",
+    "approve_gtm_plan.ts",
     "bash.ts",
     "operate_gtm_workflow.ts",
+    "render_gtm_draft.ts",
+    "watch_gtm_deployment.ts",
+    "watch_gtm_run.ts",
   ]);
 
   const tool = await read("agent/tools/apply_gtm_workspace_changes.ts");
@@ -88,7 +92,8 @@ test("trusted workflow controls keep production authority out of model input and
   assert.match(operation, /preview[\s\S]+start[\s\S]+status[\s\S]+approve[\s\S]+cancel/);
   assert.match(operation, /expectedRows[\s\S]+expectedProjectedCostUsd/);
   assert.match(operation, /action === "cancel"/);
-  assert.match(operation, /user-approval/);
+  assert.match(operation, /planApproval/);
+  assert.match(await read("agent/lib/approval-plan.ts"), /user-approval/);
   assert.match(control, /\/cancel/);
   assert.match(control, /x-vercel-trusted-oidc-idp-token/);
   assert.match(control, /x-gtm-workspace-head/);

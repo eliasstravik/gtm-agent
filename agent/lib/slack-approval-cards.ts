@@ -1,4 +1,5 @@
 import type { SlackChannelEvents } from "eve/channels/slack";
+import { describePlainApprovalTextProblem } from "./approval-summary.ts";
 
 type InputRequestedHandler = NonNullable<SlackChannelEvents["input.requested"]>;
 type InputRequestedData = Parameters<InputRequestedHandler>[0];
@@ -8,7 +9,24 @@ type InputRequest = InputRequestedData["requests"][number];
 export const GTM_APPROVAL_TOOLS: ReadonlySet<string> = new Set([
   "apply_gtm_workspace_changes",
   "operate_gtm_workflow",
+  "publish_source_change",
+  "approve_gtm_plan",
 ]);
+
+const APPROVAL_TEXT: Readonly<Record<string, string>> = {
+  task_cancel: "Stop the selected background task. Work already completed will remain.",
+  monid__monid_run: "Run the selected provider request. This may spend credits and change external data.",
+  monid__monid_stop_run: "Stop the selected provider run. Completed work and charges will remain.",
+  monid__monid_get_resource_external: "Request external access to the selected provider resource.",
+  monid__monid_release_resource: "Release the selected provider resource. It may no longer be available.",
+};
+
+export function approvalText(request: InputRequest): string | null {
+  const summary = request.action.input.summary;
+  const candidate = typeof summary === "string" ? summary : APPROVAL_TEXT[request.action.toolName] ?? request.prompt;
+  const text = candidate.trim();
+  return describePlainApprovalTextProblem(text) === null ? text : null;
+}
 
 /** Eve's Slack HITL wire format: button clicks decode from these prefixes. */
 const HITL_ACTION_PREFIX = "eve_input:";
@@ -114,7 +132,12 @@ export function buildGtmApprovalPost(request: InputRequest): SlackPost | null {
   const cancel = options.find((option) => option.id === "cancel");
   if (approve === undefined || cancel === undefined) return null;
 
-  const text = summary.trim();
+  if (approvalText(request) === null) return null;
+  let text = summary.trim();
+  if (request.action.toolName === "approve_gtm_plan") {
+    const calls = request.action.input.calls as { summary?: string; input: { summary?: string } }[];
+    text = [text, ...calls.map((call, i) => `${i + 1}. ${call.summary ?? call.input.summary}`), `Total estimated cost: $${request.action.input.totalCostUsd}.`, "Approve the whole plan, or Cancel and tell me what to change."].join("\n\n");
+  }
   const blocks: unknown[] = chunkForSections(escapeMrkdwn(renderBulletLines(text))).map((chunk) => ({
     type: "section",
     text: { type: "mrkdwn", text: chunk, verbatim: true },
@@ -137,36 +160,18 @@ export function buildGtmApprovalPost(request: InputRequest): SlackPost | null {
 
 /**
  * Rendering for every other input request (agent-source approvals, session
- * prompts): the prompt, a collapsed tool-input container for approvals, and
+ * prompts): human text and
  * the request's own options as buttons or a select, mirroring Eve's default.
  */
 export function buildGenericInputRequestPost(request: InputRequest): SlackPost {
+  const text = request.kind === "tool-approval" ? approvalText(request) : request.prompt;
+  if (text === null) throw new Error("Approval needs plain text describing the action and effects; correct the request and ask again.");
   const blocks: unknown[] = [
     {
       type: "section",
-      text: { type: "mrkdwn", text: truncate(request.prompt, SLACK_SECTION_TEXT_MAX_LENGTH) },
+      text: { type: "mrkdwn", text: escapeMrkdwn(truncate(text, SLACK_SECTION_TEXT_MAX_LENGTH)) },
     },
   ];
-  if (request.kind === "tool-approval") {
-    const json = JSON.stringify(request.action.input, null, 2);
-    if (json !== "{}") {
-      blocks.push({
-        type: "container",
-        title: { type: "plain_text", text: "Tool input" },
-        is_collapsible: true,
-        default_collapsed: true,
-        child_blocks: [
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: `\`\`\`\n${truncate(json, SLACK_SECTION_TEXT_MAX_LENGTH - 8)}\n\`\`\``,
-            },
-          },
-        ],
-      });
-    }
-  }
 
   const options = request.options ?? [];
   const selectActionId = `${HITL_ACTION_PREFIX}${request.kind === "tool-approval" ? "tool-approval:" : ""}${request.requestId}`;
@@ -216,7 +221,7 @@ export function buildGenericInputRequestPost(request: InputRequest): SlackPost {
       ],
     });
   }
-  return { blocks, text: request.prompt };
+  return { blocks, text };
 }
 
 /**

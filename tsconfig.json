@@ -8,7 +8,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node", "eve/workflow-modules"]
   },
   "include": ["agent/**/*.ts", "evals/**/*.ts", ".eve/**/*.d.ts"],
   "exclude": ["agent/skills/**"]

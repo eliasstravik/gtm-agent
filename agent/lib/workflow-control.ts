@@ -14,6 +14,8 @@ import {
 } from "./diagram-link.ts";
 import { assertWorkspaceCheckoutReady } from "./workspace-checkout.ts";
 import { previewExecution, workflowExecutionSchema, type WorkflowExecution } from "./workflow-execution.ts";
+import { preflightSchema, previewPaidStages, type PaidStages, type WorkflowPreflight } from "./workflow-preflight.ts";
+import { pollUntil } from "./poll.ts";
 
 const MAX_INPUT_BYTES = 1_000_000;
 const MAX_REMOTE_RESPONSE_BYTES = 1_000_000;
@@ -42,6 +44,8 @@ export type WorkflowRunPreview = {
   readonly rows: number;
   /** Projected spend the dry run reported; start must carry this exact value. */
   readonly projectedCostUsd: number;
+  readonly preflight: WorkflowPreflight;
+  readonly paidStages: PaidStages;
 };
 
 export type SanitizedWorkflowRun = {
@@ -144,10 +148,11 @@ export class WorkflowControl {
       sandbox: input.sandbox,
     });
     await ensureWorkflowDependencies(input.sandbox, this.#workspace);
+    const preflight = await this.preflight(input.workflowPath, input.expectedHead);
     const result = await input.sandbox.run({
       command: workflowCommand(
         this.#workspace,
-        `npm run gtm -- run ${input.workflowPath} --input ${input.inputPath.slice("workflows/".length)} --dry-run${input.checkpoint === null ? "" : ` --checkpoint ${input.checkpoint}`}`,
+        `GTM_AGENT_BACKEND=api GTM_WORKFLOW_MODEL=${shellQuote(preflight.modelDefaults.model)} npm run gtm -- run ${input.workflowPath} --input ${input.inputPath.slice("workflows/".length)} --dry-run${input.checkpoint === null ? "" : ` --checkpoint ${input.checkpoint}`}`,
       ),
       abortSignal: AbortSignal.timeout(COMMAND_TIMEOUT_MS),
     });
@@ -174,7 +179,17 @@ export class WorkflowControl {
       throw new Error("The workflow dry run did not report rows and projected cost.");
     }
     const execution = previewExecution(dryRun, rows, input.checkpoint);
-    return { dryRun, execution, head: input.expectedHead, projectedCostUsd, rows, status: "ready" };
+    const paidStages = previewPaidStages(dryRun.paidStages);
+    return { dryRun, execution, head: input.expectedHead, projectedCostUsd, rows, preflight, paidStages, status: "ready" };
+  }
+
+  async preflight(workflowPath: string, expectedHead: string): Promise<WorkflowPreflight> {
+    if (!WORKFLOW_PATH_PATTERN.test(workflowPath) || !HEAD_PATTERN.test(expectedHead)) throw new Error("Invalid workflow preflight identity.");
+    const response = await this.#workflowRequest(`/api/preflight/${encodeWorkflowPath(workflowPath)}`, {}, [200, 503]);
+    const result = preflightSchema.parse(response.body);
+    if (result.head !== expectedHead) throw new Error("The accepted workflow version is not live; credentials and tables remain pending.");
+    if (result.ok && (result.missing.length || result.auth.some(item => item.status === "failed"))) throw new Error("The workflow returned inconsistent preflight results.");
+    return result;
   }
 
   async startRun(input: {
@@ -184,12 +199,15 @@ export class WorkflowControl {
     readonly expectedCapabilitiesHash?: string;
     readonly expectedExecution?: WorkflowExecution | null;
     readonly expectedRows: number;
+    readonly expectedPaidStages: PaidStages;
     readonly inputPath: string;
     readonly workflowPath: string;
     readonly sandbox: Sandbox;
   }): Promise<{ readonly runKey: string; readonly status: "started" | "run_in_progress" }> {
     validateAcceptedScope(input);
     const preview = await this.previewRun(input);
+    if (!preview.preflight.ok) throw new Error("The credentials or result table are not ready. No run was started.");
+    if (!isDeepStrictEqual(preview.paidStages, input.expectedPaidStages)) throw new Error("The paid calls or model choices changed. Request a fresh approval. No run was started.");
     const acceptedExecution = input.expectedExecution == null ? null
       : workflowExecutionSchema.parse(input.expectedExecution);
     if (!isDeepStrictEqual(preview.execution, acceptedExecution)) {
@@ -202,7 +220,7 @@ export class WorkflowControl {
     }
     if (
       preview.rows !== input.expectedRows ||
-      Math.abs(preview.projectedCostUsd - input.expectedProjectedCostUsd) >= 0.005
+      preview.projectedCostUsd !== input.expectedProjectedCostUsd
     ) {
       throw new Error(
         `The fresh dry run reports ${preview.rows} rows and $${preview.projectedCostUsd.toFixed(2)}, not the accepted ${input.expectedRows} rows and $${input.expectedProjectedCostUsd.toFixed(2)}. Show the new preview and ask again. No run was started.`,
@@ -406,12 +424,12 @@ export class WorkflowControl {
   }
 
   async #waitForProductionHead(expectedHead: string): Promise<void> {
-    const deadline = this.#dependencies.now() + DEPLOYMENT_TIMEOUT_MS;
-    while (this.#dependencies.now() < deadline) {
-      const head = await this.#readProductionHead();
-      if (head === expectedHead) return;
-      await this.#dependencies.pause(POLL_INTERVAL_MS);
-    }
+    const head = await pollUntil({
+      read: () => this.#readProductionHead(), ready: value => value === expectedHead,
+      now: this.#dependencies.now, pause: () => this.#dependencies.pause(POLL_INTERVAL_MS),
+      timeoutMs: DEPLOYMENT_TIMEOUT_MS,
+    });
+    if (head === expectedHead) return;
     throw new Error(
       "The production workflow did not reach this workspace commit in time. No run was started.",
     );

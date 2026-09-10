@@ -19,6 +19,8 @@
     "check": "pnpm skills:check && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
+    "@dagrejs/dagre": "3.1.1",
+    "@resvg/resvg-js": "2.6.2",
     "@vercel/connect": "2.0.0",
     "@vercel/oidc": "3.8.5",
     "ai": "7.0.83",

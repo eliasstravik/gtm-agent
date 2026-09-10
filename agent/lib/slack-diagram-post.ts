@@ -148,7 +148,7 @@ export function createDiagramResultHandler(options: { readonly fetch?: typeof fe
     const output = diagramOutput(data.result.output);
     if (output === null) return;
     if (output.status === "protected") {
-      return postSafely(channel, { text: output.message });
+      return postSafely(channel, { text: [data.caption === "Live." ? data.caption : null, output.message].filter(Boolean).join("\n\n") });
     }
     const text = [data.caption, whereToLookText(output.links)].filter(Boolean).join("\n\n");
     const deliver = (input: unknown) => postSafely(channel, input);

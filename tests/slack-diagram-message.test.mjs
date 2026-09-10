@@ -3,6 +3,35 @@ import test from "node:test";
 import { createSlackChannelConfig } from "../agent/channels/slack.ts";
 import { createDiagramEvents, rememberDiagramLinks } from "../agent/lib/slack-diagram-message.ts";
 import operateTool from "../agent/tools/operate_gtm_workflow.ts";
+import { createInputRequestedHandler } from "../agent/lib/slack-approval-cards.ts";
+
+test("draft and revision pictures arrive with their captions before approval", async () => {
+  const { channel, posts } = context();
+  for (const caption of ["Find matching accounts.", "Now includes company size."]) {
+    await resultHandler({ turnId: "draft", result: { kind: "tool-result", toolName: "render_gtm_draft", output: {
+      action: "draft-diagram", caption, png: Buffer.from([137, 80, 78, 71]).toString("base64"), links,
+    } } }, channel);
+    assert.equal(posts.at(-1).text.split("\n")[0], caption);
+    assert.match(posts.at(-1).text, /Data:.*\nRuns:/);
+    assert.doesNotMatch(posts.at(-1).text, /Diagram:/);
+  }
+  await createInputRequestedHandler()({ requests: [{
+    kind: "tool-approval", requestId: "save", prompt: "Approve apply_gtm_workspace_changes?",
+    options: [{ id: "approve", label: "Approve" }, { id: "cancel", label: "Cancel" }],
+    action: { kind: "tool-call", callId: "save", toolName: "apply_gtm_workspace_changes", input: { summary: "For Acme:\nSave the revised account workflow.\nApprove to save, or Cancel and tell me what to change." } },
+  }] }, channel, {});
+  assert.equal(posts.length, 3);
+  assert.ok(posts[0].files && posts[1].files && posts[2].blocks);
+});
+
+test("Live caption and links post immediately before a smoke approval can arrive", async () => {
+  const { channel, posts } = context();
+  await resultHandler(result({ ...output, caption: "Live." }), channel);
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].text, /^Live\.\n\nDiagram:/);
+  assert.ok(posts[0].files);
+  assert.equal(channel.state.pendingDiagrams, undefined);
+});
 
 const links = {
   diagram: "https://workflows.example/gtm/diagram/qualify?exp=123&sig=secret",
@@ -27,6 +56,7 @@ function context(reject = () => false) {
       post: async (value) => {
         if (reject(value, ++attempts)) throw new Error("post rejected");
         posts.push(value);
+        return { id: `posted-${posts.length}` };
       },
       startTyping: async () => {},
     },

@@ -7,6 +7,17 @@ const instructions = await readFile(
   "utf8",
 );
 
+test("quoted ordinary outcomes use plain words and follow-ups replace user polling", () => {
+  const banned = /\b(?:git|commit|push|PR|branch|SHA|hash|ledger|checkout|migration|repository|path)\b/i;
+  const outcomes = [...instructions.matchAll(/\b(?:say|says|close|post)\s+`([^`]+)`/g)].map(match => match[1]);
+  assert.ok(outcomes.length >= 4);
+  for (const outcome of outcomes) assert.doesNotMatch(outcome, banned);
+  assert.match(instructions, /280 characters/);
+  assert.doesNotMatch(instructions, /ask me to check|Poll with the status action/);
+  assert.match(instructions, /render_gtm_draft/);
+  assert.match(instructions, /separate smoke-run approval/);
+});
+
 test("standing instructions define the fixed Slack and workspace mechanics", () => {
   for (const pattern of [
     /GTM Agent/,
@@ -37,13 +48,13 @@ test("standing instructions define the fixed Slack and workspace mechanics", () 
     /Reply with a number, or type your answer\./,
     /ask_question/,
     /then `Saved\.`/,
-    /It will be live in production in a few minutes; ask me to check\./,
+    /Saved\. I'll follow up here when it's live\./,
     /Report no commit URL, hash, path list, or repository reference/,
     /approval message shows only `summary`/i,
     /\*\*What would you like me to change\?\*\*/,
     /no remote and no repo-local Git identity/i,
     /web_search|web_fetch/,
-    /nothing was saved/i,
+    /Couldn't save\. Nothing changed\./,
     /private.*public web search/is,
     /create.*import.*sharing.*whole-(?:repository|workspace) deletion/is,
     /\/gtm-workspace.*keyboard/is,
@@ -83,7 +94,7 @@ test("standing instructions declare the sandbox workflow runtime and its limits"
     /operate_gtm_workflow/,
     /Saving this also puts it live in production\./,
     /read-only deployment action/i,
-    /`Live\.` or `Not yet live\.`/,
+    /`Live\.` or `Not live yet\.`/,
     /Approve to run, or Cancel and tell me what to change\./,
     /Approve to continue the run, or Cancel to leave it paused and tell me what to do\./,
     /Approve to stop the run here, or Cancel to leave it paused\./,
@@ -92,10 +103,10 @@ test("standing instructions declare the sandbox workflow runtime and its limits"
     /exact commit SHA/i,
     /read-only run preview/i,
     /read-only diagram action/,
-    /does not confirm Slack delivery/,
-    /channel owns delivery of the image and the Diagram\/Runs\/Data links in one message/,
+    /claim delivery from a ready result alone/,
+    /channel combines your final caption with the image and links/,
     /do not repeat or reconstruct the links/,
-    /no additional reply is needed for a links-only request/,
+    /For a links-only request, no additional reply is needed/,
     /hook token/i,
     /expose no (?:sandbox )?port|no (?:sandbox )?port/i,
     /npm run gtm -- query/,
