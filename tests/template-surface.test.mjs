@@ -53,6 +53,7 @@ test("the sole authored write tool is approval-gated and repository-bound", asyn
   const tools = await readdir(new URL("agent/tools/", root));
   assert.deepEqual(tools.sort(), [
     "apply_gtm_workspace_changes.ts",
+    "bash.ts",
     "operate_gtm_workflow.ts",
   ]);
 
