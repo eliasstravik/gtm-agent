@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3 - 2026-09-11
+
+- `pnpm build` no longer needs the production secrets. The agent, the Slack channel, and the sandbox backend that Vercel prewarms at build time read a build configuration that substitutes inert placeholders when the environment is entirely unconfigured outside production, so CI, preview deployments, and local builds compile again. Production, and any partially configured environment, is still validated in full at build time.
+- Upgrading from 0.9: `GTM_WORKFLOW_VERCEL_URL` became `GTM_WORKFLOW_URL` and `GTM_WORKFLOW_RUN_SECRET` became `GTM_RUN_SECRET`. Add both to the agent project before merging, or the production build fails with `GTM_WORKFLOW_URL is required`.
+
 ## 1.0.0 - 2026-09-11
 
 - Reduce the hosted agent to one Eve agent, one Slack channel, one Node 22 sandbox, three small library modules, and the classifier-backed `bash` and durable `watch_url` tools.

@@ -23,6 +23,14 @@ function httpsOrigin(value: string, name: string): URL {
   return url;
 }
 
+function parseSlackConfiguration(env: Readonly<Record<string, string | undefined>>) {
+  return {
+    connector: need(env, "SLACK_CONNECTOR"),
+    allowedChannelIds: list(need(env, "GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS")),
+    allowedUserIds: list(need(env, "GTM_AGENT_ALLOWED_SLACK_USER_IDS")),
+  };
+}
+
 export function parseConfiguration(env: Readonly<Record<string, string | undefined>>) {
   const repository = need(env, "GTM_WORKSPACE_REPOSITORY");
   const match = REPOSITORY.exec(repository)?.groups;
@@ -36,14 +44,8 @@ export function parseConfiguration(env: Readonly<Record<string, string | undefin
     throw new Error("TURSO_DATABASE_URL must be a libsql or HTTPS database URL.");
   }
   const workflowUrl = httpsOrigin(need(env, "GTM_WORKFLOW_URL"), "GTM_WORKFLOW_URL");
-  const reasoning = env.GTM_AGENT_REASONING?.trim() || "medium";
-  if (!(REASONING as readonly string[]).includes(reasoning)) throw new Error(`GTM_AGENT_REASONING must be one of ${REASONING.join(", ")}.`);
   return {
-    slack: {
-      connector: need(env, "SLACK_CONNECTOR"),
-      allowedChannelIds: list(need(env, "GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS")),
-      allowedUserIds: list(need(env, "GTM_AGENT_ALLOWED_SLACK_USER_IDS")),
-    },
+    slack: parseSlackConfiguration(env),
     workspace: {
       connector: need(env, "GITHUB_CONNECTOR"), repository,
       owner: match.owner!, repo: match.repo!, checkoutDirectory: "/workspace",
@@ -58,9 +60,47 @@ export function parseConfiguration(env: Readonly<Record<string, string | undefin
       url: workflowUrl.origin, host: workflowUrl.hostname,
       runSecret: need(env, "GTM_RUN_SECRET"),
     },
-    model: env.GTM_AGENT_MODEL?.trim() || "deepseek/deepseek-v4.1-flash",
-    reasoning: reasoning as (typeof REASONING)[number],
+    model: resolveAgentModel(env),
+    reasoning: resolveAgentReasoning(env),
   };
+}
+
+const REQUIRED = [
+  "SLACK_CONNECTOR", "GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS", "GTM_AGENT_ALLOWED_SLACK_USER_IDS",
+  "GITHUB_CONNECTOR", "GTM_WORKSPACE_REPOSITORY", "GTM_WORKSPACE_COMMIT_AUTHOR_NAME", "GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL",
+  "TURSO_DATABASE_URL", "TURSO_READ_ONLY_AUTH_TOKEN", "GTM_WORKFLOW_URL", "GTM_RUN_SECRET",
+] as const;
+
+const UNCONFIGURED = {
+  SLACK_CONNECTOR: "slack/unconfigured", GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS: "unconfigured", GTM_AGENT_ALLOWED_SLACK_USER_IDS: "unconfigured",
+  GITHUB_CONNECTOR: "github/unconfigured", GTM_WORKSPACE_REPOSITORY: "unconfigured/gtm-workspace",
+  GTM_WORKSPACE_COMMIT_AUTHOR_NAME: "Unconfigured", GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL: "unconfigured@example.invalid",
+  TURSO_DATABASE_URL: "libsql://unconfigured.turso.invalid", TURSO_READ_ONLY_AUTH_TOKEN: "unconfigured",
+  GTM_WORKFLOW_URL: "https://unconfigured.invalid", GTM_RUN_SECRET: "unconfigured",
+};
+
+/**
+ * `eve build` evaluates the agent, the Slack channel, and (on Vercel) the sandbox backend, so those module-scope and
+ * build-time consumers use this instead of `getConfiguration()`. Outside production an entirely unconfigured environment
+ * (CI, preview deployments, local builds) yields inert placeholders: a Slack channel that admits nobody and hosts that
+ * do not resolve. Production, and any partially configured environment, is validated in full.
+ */
+export function resolveBuildConfiguration(env: Readonly<Record<string, string | undefined>> = process.env): Configuration {
+  if (env.VERCEL_ENV !== "production" && REQUIRED.every((name) => !env[name]?.trim())) {
+    const placeholder = parseConfiguration({ ...env, ...UNCONFIGURED });
+    return { ...placeholder, slack: { ...placeholder.slack, allowedChannelIds: [], allowedUserIds: [] } };
+  }
+  return parseConfiguration(env);
+}
+
+/** Model and reasoning are optional and read on their own so `eve build` never needs the production secrets. */
+export function resolveAgentModel(env: Readonly<Record<string, string | undefined>> = process.env): string {
+  return env.GTM_AGENT_MODEL?.trim() || "deepseek/deepseek-v4.1-flash";
+}
+export function resolveAgentReasoning(env: Readonly<Record<string, string | undefined>> = process.env): (typeof REASONING)[number] {
+  const reasoning = env.GTM_AGENT_REASONING?.trim() || "medium";
+  if (!(REASONING as readonly string[]).includes(reasoning)) throw new Error(`GTM_AGENT_REASONING must be one of ${REASONING.join(", ")}.`);
+  return reasoning as (typeof REASONING)[number];
 }
 
 let cached: Configuration | undefined;
@@ -68,5 +108,7 @@ export function getConfiguration(): Configuration {
   return cached ??= parseConfiguration(process.env);
 }
 
-export function resolveAgentModel(): string { return getConfiguration().model; }
-export function resolveAgentReasoning() { return getConfiguration().reasoning; }
+let cachedForBuild: Configuration | undefined;
+export function getBuildConfiguration(): Configuration {
+  return cachedForBuild ??= resolveBuildConfiguration(process.env);
+}

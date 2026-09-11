@@ -1,7 +1,7 @@
 import { connectSlackCredentials } from "@vercel/connect/eve";
 import { defaultSlackAuth, slackChannel, type SlackChannelConfig, type SlackMessage } from "eve/channels/slack";
 import { approvalCardText } from "../lib/approval.ts";
-import { getConfiguration, type Configuration } from "../lib/config.ts";
+import { getBuildConfiguration, getConfiguration, type Configuration } from "../lib/config.ts";
 
 type State = { pushApprovals?: Record<string, boolean> };
 const humanSubtypes = new Set(["file_share", "thread_broadcast"]);
@@ -77,4 +77,4 @@ export function createSlackChannelConfig(config: Configuration["slack"]): SlackC
   };
 }
 
-export default slackChannel(createSlackChannelConfig(getConfiguration().slack));
+export default slackChannel(createSlackChannelConfig(getBuildConfiguration().slack));
