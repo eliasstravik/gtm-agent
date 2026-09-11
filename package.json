@@ -1,6 +1,6 @@
 {
   "name": "gtm-agent",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": false,
   "type": "module",
   "imports": {
@@ -30,6 +30,6 @@
   },
   "packageManager": "pnpm@10.14.0",
   "gtm": {
-    "skillsRelease": "simplify"
+    "skillsRelease": "v1.0.0"
   }
 }
