@@ -31,6 +31,6 @@
   },
   "packageManager": "pnpm@10.14.0",
   "gtm": {
-    "skillsRelease": "v1.0.1"
+    "skillsRelease": "v1.0.2"
   }
 }
