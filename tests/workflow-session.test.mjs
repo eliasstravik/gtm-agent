@@ -1,72 +1,38 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { parseConfiguration } from '../agent/lib/config.ts';
+import { gitAuthorization, sessionEnvironment, sessionNetworkPolicy } from '../agent/lib/workflow-session.ts';
 
-import {
-  AI_GATEWAY_HOST,
-  NPM_REGISTRY_HOST,
-  createSessionNetworkPolicy,
-  createWorkflowSessionEnvironment,
-  createWorkflowWritePolicy,
-} from "../agent/lib/workflow-session.ts";
-
-const workflow = {
-  databaseHost: "acme.turso.io",
-  databaseUrl: "https://acme.turso.io",
-  databaseAuthToken: "turso-write-secret",
-  databaseReadOnlyAuthToken: "turso-read-only",
-  providerHosts: ["api.example-data.com"],
-};
-
-test("every session declares the sandbox workflow runtime and nothing else", () => {
-  assert.deepEqual(createWorkflowSessionEnvironment(null), {
-    GTM_SANDBOX: "1",
-    GTM_AGENT_BACKEND: "api",
-  });
+const config = parseConfiguration({
+  SLACK_CONNECTOR: 'slack/agent', GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS: 'C0123456789', GTM_AGENT_ALLOWED_SLACK_USER_IDS: 'U0123456789',
+  GITHUB_CONNECTOR: 'github/agent', GTM_WORKSPACE_REPOSITORY: 'acme/gtm-workspace',
+  GTM_WORKSPACE_COMMIT_AUTHOR_NAME: 'Acme Bot', GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL: '1+acme@users.noreply.github.com',
+  TURSO_DATABASE_URL: 'libsql://acme-db-acme.turso.io', TURSO_READ_ONLY_AUTH_TOKEN: 'ro-token',
+  GTM_WORKFLOW_URL: 'https://acme-workflows.vercel.app', GTM_RUN_SECRET: 'run-secret',
 });
 
-test("a configured workflow host delivers only the database URL, never a secret or Gateway key", () => {
-  const environment = createWorkflowSessionEnvironment(workflow);
-  assert.deepEqual(environment, {
-    GTM_SANDBOX: "1",
-    GTM_AGENT_BACKEND: "api",
-    TURSO_DATABASE_URL: "https://acme.turso.io",
-  });
-  assert.equal(
-    Object.values(environment).some((value) => value.includes("secret")),
-    false,
-  );
-  assert.equal("AI_GATEWAY_API_KEY" in environment, false);
+test('the session environment carries no secret', () => {
+  const env = sessionEnvironment(config);
+  assert.equal(env.GTM_SANDBOX, '1');
+  assert.equal(env.GTM_HOST, 'eve');
+  assert.equal(env.GIT_TERMINAL_PROMPT, '0');
+  assert.equal(env.GTM_BASE_URL, 'https://acme-workflows.vercel.app');
+  for (const value of Object.values(env)) {
+    assert.ok(!value.includes('run-secret') && !value.includes('ro-token'), value);
+  }
 });
 
-test("no workflow host keeps the session at deny-all", () => {
-  assert.equal(createSessionNetworkPolicy(null), "deny-all");
+test('the network policy allows exactly the five hosts and injects placeholders per host', () => {
+  const policy = sessionNetworkPolicy(config, gitAuthorization('gh-token'));
+  assert.deepEqual(Object.keys(policy.allow).sort(), ['acme-db-acme.turso.io', 'acme-workflows.vercel.app', 'codeload.github.com', 'github.com', 'registry.npmjs.org']);
+  assert.equal(policy.allow['acme-workflows.vercel.app'][0].transform[0].headers.authorization, 'Bearer run-secret');
+  assert.equal(policy.allow['acme-db-acme.turso.io'][0].transform[0].headers.authorization, 'Bearer ro-token');
+  const github = policy.allow['github.com'][0];
+  assert.equal(github.match.headers[0].value.exact, `Basic ${Buffer.from('x-access-token:gtm-sandbox').toString('base64')}`);
+  assert.equal(github.transform[0].headers.authorization, gitAuthorization('gh-token'));
 });
 
-test("baseline egress brokers only the read-only Turso token and opens no Gateway", () => {
-  assert.deepEqual(createSessionNetworkPolicy(workflow), {
-    allow: {
-      [NPM_REGISTRY_HOST]: [],
-      "acme.turso.io": [
-        { transform: [{ headers: { authorization: "Bearer turso-read-only" } }] },
-      ],
-      "api.example-data.com": [],
-    },
-  });
-  assert.equal(JSON.stringify(createSessionNetworkPolicy(workflow)).includes("turso-write-secret"), false);
-  assert.equal(AI_GATEWAY_HOST in createSessionNetworkPolicy(workflow).allow, false);
-  assert.equal(NPM_REGISTRY_HOST, "registry.npmjs.org");
-});
-
-test("the write policy brokers the write token for the migration step only and keeps the baseline hosts", () => {
-  const policy = createWorkflowWritePolicy(workflow);
-  assert.deepEqual(policy, {
-    allow: {
-      [NPM_REGISTRY_HOST]: [],
-      "acme.turso.io": [
-        { transform: [{ headers: { authorization: "Bearer turso-write-secret" } }] },
-      ],
-      "api.example-data.com": [],
-    },
-  });
-  assert.equal(JSON.stringify(policy).includes("turso-read-only"), false);
+test('without a GitHub token the policy allows github.com but injects nothing', () => {
+  const policy = sessionNetworkPolicy(config);
+  assert.deepEqual(policy.allow['github.com'], []);
 });

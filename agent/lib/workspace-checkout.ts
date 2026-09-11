@@ -1,437 +1,52 @@
-import type {
-  RuntimeSandboxSession,
-  SandboxCommandResult,
-  SandboxNetworkPolicy,
-  SandboxSession,
-  SandboxSessionUseFn,
-} from "eve/sandbox";
+import type { SandboxSessionUseFn } from "eve/sandbox";
+import type { Configuration } from "./config.ts";
+import { sessionNetworkPolicy } from "./workflow-session.ts";
 
-import {
-  WORKSPACE_BRANCH,
-  type ConnectedWorkspaceConfiguration,
-} from "./config.ts";
+type SessionUse = SandboxSessionUseFn<{ readonly networkPolicy?: ReturnType<typeof sessionNetworkPolicy> }>;
 
-type VercelSessionUse = SandboxSessionUseFn<{
-  readonly networkPolicy?: SandboxNetworkPolicy;
-}>;
-
-const SANDBOX_COMMAND_TIMEOUT_MS = 30_000;
-const WORKFLOW_PREPARATION_TIMEOUT_MS = 2 * 60 * 1000;
-
-type CustomNetworkPolicy = Exclude<SandboxNetworkPolicy, string>;
-type NetworkAllowMap = Extract<CustomNetworkPolicy["allow"], Record<string, unknown>>;
-
-/**
- * Variables that must never reach the session environment. Connector tokens
- * are brokered into Git upload-pack only; the Turso token and workflow
- * Gateway key are brokered at the firewall for their exact hosts.
- */
-const FORBIDDEN_SESSION_VARIABLES = [
-  "GITHUB_TOKEN",
-  "GH_TOKEN",
-  "VERCEL_OIDC_TOKEN",
-  "VERCEL_AUTH_TOKEN",
-  "GTM_WORKFLOW_RUN_SECRET",
-  "CONNECT_TOKEN",
-  "TURSO_AUTH_TOKEN",
-  "TURSO_READ_ONLY_AUTH_TOKEN",
-  "GTM_WORKFLOW_GATEWAY_API_KEY",
-] as const;
-
-export type WorkspaceCheckoutMetadata = {
-  readonly branch: typeof WORKSPACE_BRANCH;
-  readonly checkoutDirectory: string;
-  readonly head: string;
-  readonly repository: string;
-};
-
-export class EgressNotClosedError extends Error {
-  constructor() {
-    super(
-      "Sandbox egress could not be restored to its session baseline. End this session immediately.",
-    );
-    this.name = "EgressNotClosedError";
-  }
+function quote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
-/**
- * A sandbox that can optionally hard-stop its own compute. Only the runtime
- * session from `ctx.getSandbox()` carries `stop`; the I/O-only session used
- * during bootstrap checkout hydration does not, so this stays optional
- * rather than widening every caller's contract.
- */
-export type StoppableSandbox = Pick<SandboxSession, "setNetworkPolicy"> &
-  Partial<Pick<RuntimeSandboxSession, "stop">>;
-
-export function createGitBasicAuthorization(token: string): string {
-  return `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
-}
-
-/**
- * Egress for a clone or refresh: the session baseline (deny-all, or the
- * workflow allowlist) plus credentialed access to this repository's
- * upload-pack endpoints only. Keeping the baseline means a workflow run in
- * progress does not lose its database or provider egress mid-refresh.
- */
-export function createGitNetworkPolicy(
-  workspace: ConnectedWorkspaceConfiguration,
+export async function hydrateWorkspace(
+  config: Configuration,
   authorization: string,
-  baseline: SandboxNetworkPolicy = "deny-all",
-): CustomNetworkPolicy {
-  return {
-    allow: {
-      ...baselineAllowMap(baseline),
-      "github.com": [
-        {
-          match: {
-            method: ["GET"],
-            path: { exact: `/${workspace.owner}/${workspace.repo}.git/info/refs` },
-            queryString: [
-              {
-                key: { exact: "service" },
-                value: { exact: "git-upload-pack" },
-              },
-            ],
-          },
-          transform: [{ headers: { authorization } }],
-        },
-        {
-          match: {
-            method: ["POST"],
-            path: {
-              exact: `/${workspace.owner}/${workspace.repo}.git/git-upload-pack`,
-            },
-          },
-          transform: [{ headers: { authorization } }],
-        },
-      ],
-    },
-  };
-}
-
-export async function hydrateWorkspaceCheckout({
-  authorization,
-  baselinePolicy = "deny-all",
-  prepareWorkflowRuntime = false,
-  workspace,
-  use,
-}: {
-  readonly authorization: string;
-  readonly baselinePolicy?: SandboxNetworkPolicy;
-  readonly prepareWorkflowRuntime?: boolean;
-  readonly workspace: ConnectedWorkspaceConfiguration;
-  readonly use: VercelSessionUse;
-}): Promise<WorkspaceCheckoutMetadata> {
-  const sandbox = await use({
-    networkPolicy: createGitNetworkPolicy(workspace, authorization, baselinePolicy),
-  });
-
+  use: SessionUse,
+): Promise<void> {
+  const baseline = sessionNetworkPolicy(config);
+  const sandbox = await use({ networkPolicy: sessionNetworkPolicy(config, authorization) });
+  const remote = `https://x-access-token:gtm-sandbox@github.com/${config.workspace.repository}.git`;
+  const command = [
+    "set -eu",
+    `git clone --branch main --single-branch ${quote(remote)} /workspace`,
+    "cd /workspace",
+    `git config user.name ${quote(config.workspace.authorName)}`,
+    `git config user.email ${quote(config.workspace.authorEmail)}`,
+    `git remote set-url origin ${quote(remote)}`,
+    "mkdir -p /tmp/gtm-scratch /opt/gtm-skills/skills",
+    'test -d "$HOME/.agents/skills"',
+    'cp -R "$HOME/.agents/skills/." /opt/gtm-skills/skills/',
+    'find /opt/gtm-skills/skills -name SKILL.md -type f | grep -q .',
+    'if [ -f workflows/package-lock.json ]; then cd workflows && npm ci; fi',
+  ].join("\n");
   try {
-    await runCredentialFree(
-      sandbox,
-      createCloneCommand(workspace),
-      "GTM workspace checkout",
-    );
-  } catch (error) {
-    if (error instanceof Error && /^GTM workspace checkout failed/.test(error.message)) {
-      throw new Error(
-        "GTM workspace checkout failed. Confirm GTM_WORKSPACE_REPOSITORY names a repository whose main branch has at least one commit (a new repository created with a README is enough) and that the GitHub connector can read it, then start a fresh Slack thread.",
-        { cause: error },
-      );
-    }
-    throw error;
+    const result = await sandbox.run({ command });
+    if (result.exitCode !== 0) throw new Error(`Workspace startup failed: ${result.stderr.slice(-2_000)}`);
+    await verifyWorkspace(sandbox, config);
   } finally {
-    await closeSandboxEgress(sandbox, baselinePolicy);
-  }
-
-  const head = await verifyWorkspaceCheckout(sandbox, workspace);
-  if (prepareWorkflowRuntime) {
-    await prepareWorkspaceWorkflowRuntime(sandbox, workspace);
-  }
-  return {
-    branch: workspace.branch,
-    checkoutDirectory: workspace.checkoutDirectory,
-    head,
-    repository: workspace.repository,
-  };
-}
-
-async function prepareWorkspaceWorkflowRuntime(
-  sandbox: Pick<SandboxSession, "run">,
-  workspace: ConnectedWorkspaceConfiguration,
-): Promise<void> {
-  await runCredentialFree(
-    sandbox,
-    createWorkflowRuntimePreparationCommand(workspace),
-    "GTM workflow dependency installation",
-    WORKFLOW_PREPARATION_TIMEOUT_MS,
-  );
-}
-
-export async function verifyWorkspaceCheckout(
-  sandbox: Pick<SandboxSession, "run">,
-  workspace: ConnectedWorkspaceConfiguration,
-  expectedHead?: string,
-): Promise<string> {
-  const result = await runSandboxCommand(
-    sandbox,
-    createVerificationCommand(workspace, expectedHead),
-  );
-  assertSucceeded("GTM workspace verification", result);
-
-  const head = result.stdout.trim();
-  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(head)) {
-    throw new Error("GTM workspace verification returned an invalid HEAD.");
-  }
-  return head;
-}
-
-/**
- * Only a mutation that writes root `ORG.md` may touch a checkout that has no
- * organization file yet, so the first saved change on a README-only
- * repository is always the workspace scaffold. That condition is derived
- * here rather than trusted from the caller: root `ORG.md` can never be a
- * deletion (`PROTECTED_ROOT_DELETIONS` in `workspace-paths.ts`), so its
- * presence among `paths` means the mutation writes it.
- */
-export async function assertWorkspaceCheckoutReady({
-  workspace,
-  expectedHead,
-  paths,
-  sandbox,
-}: {
-  readonly workspace: ConnectedWorkspaceConfiguration;
-  readonly expectedHead: string;
-  readonly paths: readonly string[];
-  readonly sandbox: Pick<SandboxSession, "run">;
-}): Promise<void> {
-  const result = await runSandboxCommand(
-    sandbox,
-    createMutationPreflightCommand(
-      workspace,
-      expectedHead,
-      paths,
-      paths.includes("ORG.md"),
-    ),
-  );
-  assertPreflightSucceeded(result);
-}
-
-export async function refreshWorkspaceCheckout({
-  authorization,
-  baselinePolicy = "deny-all",
-  commitSha,
-  workspace,
-  sandbox,
-}: {
-  readonly authorization: string;
-  readonly baselinePolicy?: SandboxNetworkPolicy;
-  readonly commitSha: string;
-  readonly workspace: ConnectedWorkspaceConfiguration;
-  readonly sandbox: Pick<SandboxSession, "run"> & StoppableSandbox;
-}): Promise<void> {
-  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(commitSha)) {
-    throw new Error("Refusing to refresh to an invalid Git object ID.");
-  }
-  await sandbox.setNetworkPolicy(
-    createGitNetworkPolicy(workspace, authorization, baselinePolicy),
-  );
-  try {
-    await runCredentialFree(
-      sandbox,
-      createRefreshCommand(workspace, commitSha),
-      "GTM workspace refresh",
-    );
-  } finally {
-    await closeSandboxEgress(sandbox, baselinePolicy);
-  }
-
-  const head = await verifyWorkspaceCheckout(sandbox, workspace, commitSha);
-  if (head !== commitSha) {
-    throw new Error("GTM workspace refresh did not reach the durable commit.");
-  }
-}
-
-export async function markWorkspaceCheckoutStale(
-  sandbox: Pick<SandboxSession, "run">,
-  workspace: ConnectedWorkspaceConfiguration,
-): Promise<void> {
-  const result = await runSandboxCommand(
-    sandbox,
-    `set -euo pipefail\numask 077\nmkdir -p "$HOME/.gtm"\n: > "${workspace.staleMarker}"`,
-  );
-  assertSucceeded("GTM workspace stale marker", result);
-}
-
-function createCloneCommand(workspace: ConnectedWorkspaceConfiguration): string {
-  return `set -euo pipefail
-repo_dir="${workspace.checkoutDirectory}"
-mkdir -p "$HOME/.gtm"
-mkdir "$repo_dir"
-git clone --depth=1 --single-branch --branch "${workspace.branch}" --no-tags \\
-  "https://github.com/${workspace.repository}.git" "$repo_dir"
-git -C "$repo_dir" remote remove origin`;
-}
-
-function createRefreshCommand(
-  workspace: ConnectedWorkspaceConfiguration,
-  commitSha: string,
-): string {
-  return `set -euo pipefail
-repo_dir="${workspace.checkoutDirectory}"
-git -C "$repo_dir" fetch --depth=1 --no-tags \\
-  "https://github.com/${workspace.repository}.git" "${commitSha}"
-test "$(git -C "$repo_dir" rev-parse FETCH_HEAD)" = "${commitSha}"
-git -C "$repo_dir" reset --hard "${commitSha}"`;
-}
-
-function createWorkflowRuntimePreparationCommand(
-  workspace: ConnectedWorkspaceConfiguration,
-): string {
-  return `set -euo pipefail
-repo_dir="${workspace.checkoutDirectory}"
-workflow_dir="$repo_dir/workflows"
-if test ! -f "$workflow_dir/package.json"; then
-  exit 0
-fi
-test -f "$workflow_dir/package-lock.json"
-test ! -L "$workflow_dir"
-test ! -L "$workflow_dir/package.json"
-test ! -L "$workflow_dir/package-lock.json"
-cd "$workflow_dir"
-npm ci --include=dev --ignore-scripts --no-audit --no-fund
-test -x node_modules/.bin/tsx`;
-}
-
-function createVerificationCommand(
-  workspace: ConnectedWorkspaceConfiguration,
-  expectedHead?: string,
-): string {
-  return `set -euo pipefail
-repo_dir="${workspace.checkoutDirectory}"
-test "$(git -C "$repo_dir" branch --show-current)" = "${workspace.branch}"
-test -z "$(git -C "$repo_dir" status --porcelain)"
-test -z "$(git -C "$repo_dir" remote)"
-test ! -e "${workspace.staleMarker}"
-if git -C "$repo_dir" ls-files --stage | awk '$1 == "120000" || $1 == "160000" { found = 1 } END { exit found ? 0 : 1 }'; then
-  echo "Unsupported symlink or gitlink in GTM workspace checkout" >&2
-  exit 1
-fi
-for variable in ${FORBIDDEN_SESSION_VARIABLES.join(" ")}; do
-  if printenv "$variable" >/dev/null 2>&1; then
-    echo "Unexpected credential variable: $variable" >&2
-    exit 1
-  fi
-done
-if git -C "$repo_dir" config --local --get-regexp '(^credential\\.|^http\\..*\\.extraheader$)' >/dev/null 2>&1; then
-  echo "Unexpected Git credential configuration" >&2
-  exit 1
-fi
-head="$(git -C "$repo_dir" rev-parse HEAD)"
-${expectedHead === undefined ? "" : `test "$head" = "${expectedHead}"`}
-printf '%s\\n' "$head"`;
-}
-
-function createMutationPreflightCommand(
-  workspace: ConnectedWorkspaceConfiguration,
-  expectedHead: string,
-  paths: readonly string[],
-  initializing: boolean,
-): string {
-  const symlinkChecks = paths
-    .flatMap((path) => pathPrefixes(path))
-    .filter((path, index, all) => all.indexOf(path) === index)
-    .map((path) => `test ! -L "$repo_dir/${path}"`)
-    .join("\n");
-  const organizationCheck = initializing
-    ? ""
-    : `test -f "$repo_dir/ORG.md" || test -f "$repo_dir/org.md" || fail UNINITIALIZED\n`;
-
-  return `set -euo pipefail
-repo_dir="${workspace.checkoutDirectory}"
-fail() { printf '%s\n' "$1"; exit 1; }
-test ! -e "${workspace.staleMarker}" || fail STALE
-test -z "$(git -C "$repo_dir" status --porcelain)" || fail DIRTY
-test "$(git -C "$repo_dir" branch --show-current)" = "${workspace.branch}" || fail WRONG_BRANCH
-test "$(git -C "$repo_dir" rev-parse HEAD)" = "${expectedHead}" || fail WRONG_HEAD
-${organizationCheck}${symlinkChecks}`;
-}
-
-function pathPrefixes(path: string): string[] {
-  const segments = path.split("/");
-  return segments.map((_, index) => segments.slice(0, index + 1).join("/"));
-}
-
-async function runCredentialFree(
-  sandbox: Pick<SandboxSession, "run">,
-  command: string,
-  label: string,
-  timeoutMs = SANDBOX_COMMAND_TIMEOUT_MS,
-): Promise<void> {
-  const result = await runSandboxCommand(sandbox, command, timeoutMs);
-  assertSucceeded(label, result);
-}
-
-function runSandboxCommand(
-  sandbox: Pick<SandboxSession, "run">,
-  command: string,
-  timeoutMs = SANDBOX_COMMAND_TIMEOUT_MS,
-): ReturnType<SandboxSession["run"]> {
-  return sandbox.run({
-    command,
-    abortSignal: AbortSignal.timeout(timeoutMs),
-  });
-}
-
-function baselineAllowMap(policy: SandboxNetworkPolicy): NetworkAllowMap {
-  if (typeof policy === "string") return {};
-  if (Array.isArray(policy.allow)) {
-    return Object.fromEntries(policy.allow.map((host) => [host, []]));
-  }
-  return policy.allow ?? {};
-}
-
-export async function closeSandboxEgress(
-  sandbox: StoppableSandbox,
-  baseline: SandboxNetworkPolicy,
-): Promise<void> {
-  try {
     await sandbox.setNetworkPolicy(baseline);
-    return;
-  } catch {
-    try {
-      await sandbox.setNetworkPolicy(baseline);
-      return;
-    } catch {
-      // The policy could not be restored by any retry: whatever it was
-      // widened to (a credentialed Git host, the Turso write host) stays
-      // reachable. Stopping compute is a hard enforcement of "no more
-      // egress," not advisory; it only runs when the caller holds a runtime
-      // session (`ctx.getSandbox()`), never the bootstrap-time I/O session.
-      await sandbox.stop?.().catch(() => {});
-      throw new EgressNotClosedError();
-    }
   }
 }
 
-function assertPreflightSucceeded(result: SandboxCommandResult): void {
-  if (result.exitCode === 0) return;
-  const reason = result.stdout.trim();
-  const messages: Readonly<Record<string, string>> = {
-    DIRTY: "The session checkout has uncommitted or untracked files.",
-    STALE: "The session checkout is stale after a prior refresh failure.",
-    UNINITIALIZED:
-      "The connected workspace is not set up yet: the first saved change must write root ORG.md. Run the gtm-workspace create flow for the connected repository.",
-    WRONG_BRANCH: "The session checkout is not on the configured main branch.",
-    WRONG_HEAD: "The session checkout no longer matches the approved base commit.",
-  };
-  throw new Error(
-    messages[reason] ??
-      "A requested path traverses a symbolic link. Start a fresh Slack thread.",
-  );
-}
-
-function assertSucceeded(label: string, result: SandboxCommandResult): void {
-  if (result.exitCode === 0) return;
-  throw new Error(`${label} failed. Start a fresh Slack thread after checking the deployment configuration.`);
+export async function verifyWorkspace(
+  sandbox: { run(input: { command: string }): PromiseLike<{ exitCode: number; stdout: string; stderr: string }> },
+  config: Configuration,
+): Promise<string> {
+  const expected = `https://x-access-token:gtm-sandbox@github.com/${config.workspace.repository}.git`;
+  const result = await sandbox.run({
+    command: `cd /workspace && test "$(git branch --show-current)" = main && test "$(git remote get-url origin)" = ${quote(expected)} && git rev-parse HEAD`,
+  });
+  const head = result.stdout.trim();
+  if (result.exitCode !== 0 || !/^[0-9a-f]{40,64}$/i.test(head)) throw new Error("Workspace checkout verification failed.");
+  return head;
 }

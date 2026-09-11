@@ -1,6 +1,6 @@
 {
   "name": "gtm-agent",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": false,
   "type": "module",
   "imports": {
@@ -8,24 +8,18 @@
     "#evals/*": "./evals/*"
   },
   "scripts": {
-    "build": "eve build",
+    "fetch-skills": "node scripts/fetch-skills.mjs",
+    "build": "pnpm fetch-skills && eve build",
     "dev": "eve dev",
     "start": "eve start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs",
     "eval": "eve eval",
-    "skills:sync": "node scripts/sync-gtm-skills.mjs",
-    "skills:check": "node scripts/sync-gtm-skills.mjs --check",
-    "check": "pnpm skills:check && pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm fetch-skills && pnpm typecheck && pnpm test && eve build",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "@dagrejs/dagre": "3.1.1",
-    "@resvg/resvg-js": "2.6.2",
     "@vercel/connect": "2.0.0",
-    "@vercel/oidc": "3.8.5",
-    "ai": "7.0.83",
     "eve": "0.52.5",
-    "octokit": "5.0.5",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -35,5 +29,8 @@
   "engines": {
     "node": "24.x"
   },
-  "packageManager": "pnpm@10.14.0"
+  "packageManager": "pnpm@10.14.0",
+  "gtm": {
+    "skillsRelease": "v1.0.0"
+  }
 }

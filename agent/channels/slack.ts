@@ -1,96 +1,80 @@
 import { connectSlackCredentials } from "@vercel/connect/eve";
-import {
-  defaultSlackAuth,
-  slackChannel,
-  type SlackChannelConfig,
-  type SlackMessage,
-} from "eve/channels/slack";
+import { defaultSlackAuth, slackChannel, type SlackChannelConfig, type SlackMessage } from "eve/channels/slack";
+import { approvalCardText } from "../lib/approval.ts";
+import { getConfiguration, type Configuration } from "../lib/config.ts";
 
-import {
-  getConfiguration,
-  type SlackConfiguration,
-} from "../lib/config.ts";
-import { createInputRequestedHandler } from "../lib/slack-approval-cards.ts";
-import { createDiagramEvents } from "../lib/slack-diagram-message.ts";
+type State = { pushApprovals?: Record<string, boolean> };
+const humanSubtypes = new Set(["file_share", "thread_broadcast"]);
+const clean = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-const configuration = getConfiguration();
-
-/**
- * Slack `message` subtypes that represent a new human post. Eve's channel
- * message path does not filter subtypes, so edits (`message_changed`),
- * deletions (`message_deleted`), joins, topic changes, and bot posts would
- * otherwise reach `onMessage`.
- */
-const HUMAN_POST_SUBTYPES = new Set(["file_share", "thread_broadcast"]);
-
-function isHumanPost(message: SlackMessage): boolean {
+function isHuman(message: SlackMessage): boolean {
   const subtype = (message.raw as { subtype?: unknown }).subtype;
-  return (
-    subtype === undefined ||
-    subtype === "" ||
-    (typeof subtype === "string" && HUMAN_POST_SUBTYPES.has(subtype))
-  );
+  return subtype === undefined || subtype === "" || typeof subtype === "string" && humanSubtypes.has(subtype);
 }
 
-export function createSlackChannelConfig(
-  slack: SlackConfiguration,
-): SlackChannelConfig {
-  const allowedChannels = new Set(slack.allowedChannelIds);
-  const allowedUsers = new Set(slack.allowedUserIds);
-
-  function isAllowedHuman(message: SlackMessage): boolean {
-    const author = message.author;
-    return (
-      author !== undefined &&
-      !author.isBot &&
-      allowedChannels.has(message.channelId) &&
-      allowedUsers.has(author.userId)
-    );
-  }
-
+export function createSlackChannelConfig(config: Configuration["slack"]): SlackChannelConfig {
+  const channels = new Set(config.allowedChannelIds), users = new Set(config.allowedUserIds);
+  const allowed = (message: SlackMessage) => Boolean(message.author && !message.author.isBot && channels.has(message.channelId) && users.has(message.author.userId));
   return {
-    credentials: connectSlackCredentials(slack.connector),
+    credentials: connectSlackCredentials(config.connector),
     threadContext: { since: "last-agent-reply" },
-    // A GTM approval shows only the tool's plain-language summary with
-    // Approve and Cancel; Eve's default card would append the raw tool input.
-    // Diagram events combine the tool result and final caption into one post.
     events: {
-      "input.requested": createInputRequestedHandler(),
-      ...createDiagramEvents(),
+      "input.requested": async (data, channel) => {
+        for (const request of data.requests) {
+          const text = approvalCardText(request);
+          const options = request.options ?? [];
+          const approve = options.find((option) => option.id === "approve");
+          const cancel = options.find((option) => option.id === "cancel");
+          const kind = request.kind === "tool-approval" ? "tool-approval:" : "";
+          const action = (label: string, value: string, index: number, primary = false) => ({
+            type: "button", action_id: `eve_input:${kind}${request.requestId}:button:${index}`,
+            text: { type: "plain_text", text: label }, value, ...(primary ? { style: "primary" } : {}),
+          });
+          const choices = approve && cancel
+            ? [action("Cancel", cancel.id, options.indexOf(cancel)), action("Approve", approve.id, options.indexOf(approve), true)]
+            : options.map((option, index) => action(option.label, option.id, index, option.style === "primary"));
+          await channel.thread.post({ text, blocks: [
+            { type: "section", text: { type: "mrkdwn", text: clean(text), verbatim: true } },
+            ...(choices.length ? [{ type: "actions", elements: choices }] : []),
+          ] });
+          if (request.kind === "tool-approval") {
+            const command = request.action.input.command;
+            const state = channel.state as typeof channel.state & State;
+            state.pushApprovals ??= {};
+            state.pushApprovals[request.requestId] = typeof command === "string" && /\bgit\s+push\b/.test(command);
+          }
+        }
+      },
+      "approval.settled": async (data, channel) => {
+        const state = channel.state as typeof channel.state & State;
+        if (data.outcome === "approved" && state.pushApprovals?.[data.requestId]) {
+          await channel.thread.post("Saving and testing. Back in a few minutes.");
+        }
+        if (state.pushApprovals) delete state.pushApprovals[data.requestId];
+      },
+      "action.result": async (data, channel) => {
+        if (data.result.kind !== "tool-result" || data.result.toolName !== "bash") return;
+        const output = data.result.output as { stdout?: unknown };
+        if (typeof output.stdout !== "string") return;
+        let body: unknown;
+        try { body = JSON.parse(output.stdout); } catch { return; }
+        const image = body && typeof body === "object" ? (body as { image?: unknown }).image : undefined;
+        if (typeof image !== "string") return;
+        const expected = new URL(getConfiguration().workflow.url), candidate = new URL(image);
+        if (candidate.protocol !== "https:" || candidate.origin !== expected.origin) return;
+        await channel.thread.post({ text: "Workflow picture", blocks: [{ type: "image", image_url: image, alt_text: "Workflow picture" }] });
+      },
     },
-    onAppMention(ctx, message) {
-      if (!isAllowedHuman(message)) {
-        return null;
-      }
-      return { auth: defaultSlackAuth(message, ctx) };
-    },
-    // An unmentioned reply continues a thread only when the agent already
-    // holds a session for it. Eve routes mentioned messages to onAppMention
-    // and never to onMessage, so a mention cannot start two turns. Top-level
-    // channel messages have no agent session and are ignored here.
+    onAppMention(ctx, message) { return allowed(message) ? { auth: defaultSlackAuth(message, ctx) } : null; },
     async onMessage(ctx, message) {
-      if (
-        !isHumanPost(message) ||
-        !isAllowedHuman(message) ||
-        !(await ctx.isSubscribed())
-      ) {
-        return null;
-      }
-      return { auth: defaultSlackAuth(message, ctx) };
+      return isHuman(message) && allowed(message) && await ctx.isSubscribed()
+        ? { auth: defaultSlackAuth(message, ctx) } : null;
     },
-    onDirectMessage() {
-      return null;
-    },
+    onDirectMessage() { return null; },
     onInputResponse(ctx, submission) {
-      if (
-        !allowedChannels.has(ctx.slack.channelId) ||
-        !allowedUsers.has(submission.user.id)
-      ) {
-        return null;
-      }
-      return { auth: ctx.defaultAuth };
+      return channels.has(ctx.slack.channelId) && users.has(submission.user.id) ? { auth: ctx.defaultAuth } : null;
     },
   };
 }
 
-export default slackChannel(createSlackChannelConfig(configuration.slack));
+export default slackChannel(createSlackChannelConfig(getConfiguration().slack));

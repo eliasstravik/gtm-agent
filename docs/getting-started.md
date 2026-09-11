@@ -1,146 +1,45 @@
-# Getting started — deploy GTM Agent
+# Deploy GTM Agent
 
-GTM Agent is an open-source Eve agent that brings five focused GTM skills into Slack. Deploy it with Slack only, connect one GitHub repository for durable organization, ICP, persona, member, and suborganization workspace content, and optionally add the workspace's own Turso database so the agent can build and run saved GTM workflows.
+Prerequisites: a [Vercel account](https://vercel.com/signup), Slack admin access, one GitHub repository with a `main` branch and an initial commit, and the [Vercel CLI](https://vercel.com/docs/cli) for the scripted path.
 
-> [!IMPORTANT]
-> **Breaking deployment change:** when upgrading, rename `GTM_CONTEXT_REPOSITORY` to `GTM_WORKSPACE_REPOSITORY` before redeploying. The former variable is no longer recognized.
-> Production also requires `GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS` and `GTM_AGENT_ALLOWED_SLACK_USER_IDS`. An empty or invalid allowlist stops startup.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?project-name=gtm-agent&repository-name=gtm-agent&repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D)
 
-## 1. Check the prerequisites
+The button creates the agent project and its Slack connector. Then use either setup path below. The agent repository and workspace repository must be different.
 
-You need:
+## Scripted path
 
-- A Vercel account with Eve/Workflow, Vercel Sandbox, Connect, and AI Gateway available
-- A Slack workspace where you can install the generated app, plus the exact IDs of every channel and person allowed to use it
-- For workspace mode, one GitHub repository with a `main` branch that has at least one commit. A new private repository created with "Add a README file" ticked is enough: the agent sets up the workspace from Slack. An existing workspace with root `ORG.md`, or a legacy root `org.md` that the agent can migrate, also works
-- For workflow hosting, one Turso database dedicated to that workspace (the Vercel Marketplace Turso integration works) plus a read-only token for it; model calls happen on the workflow project with its own budgeted Vercel AI Gateway key
+1. In the agent project's Connect settings, create a GitHub connector, grant it only the workspace repository, and save its identifier as `GITHUB_CONNECTOR`.
+2. Install the GTM skills with `npx skills add eliasstravik/gtm-skills -g`, open the workspace checkout, and run `~/.agents/skills/gtm-workflow/scripts/setup-workflow-project.sh "$PWD"`.
+3. In the workflow project's Turso Marketplace integration, create the database; then create a read-only token in Turso with `turso db tokens create <database> --read-only`.
+4. Paste the script's workflow URL and run secret, the Turso URL and read-only token, the GitHub connector and repository, and the Slack allowlists into the agent project using the names in [`.env.example`](../.env.example).
+5. Set `GTM_WORKSPACE_COMMIT_AUTHOR_NAME` and `GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL` to a verified Git identity belonging to the Vercel project owner or team member.
+6. Redeploy the workflow project, then the agent project. Mention the bot in an allowlisted Slack channel and say: `Set up our GTM workspace.`
 
-The agent repository and the workspace repository are different things. This repository contains the executable agent and its locked workflow snapshot. Your workspace repository contains your organization’s private GTM definitions. Never set `GTM_WORKSPACE_REPOSITORY` to this repository.
+The current Vercel CLI cannot create the Turso Marketplace resource or enable system environment variables. The setup script prints those remaining dashboard actions instead of claiming to automate them.
 
-## 2. Choose a deployment
+## Dashboard path
 
-### Recommended — Slack with one GTM workspace repository
+1. Deploy this repository with the button and finish the Slack connector flow.
+2. Add the exact Slack channel and user ID allowlists to the agent project.
+3. Create a GitHub connector in the agent project's Connect settings.
+4. Grant that connector access to only the workspace repository.
+5. Create a second Vercel project from that repository, using `workflows` as its Root Directory and `main` as Production Branch.
+6. Set the workflow project's Node.js version to 22.x and turn off Deployment Protection for production.
+7. Install Turso from the Vercel Marketplace on the workflow project and create a read-only token for the same database.
+8. Add `GTM_RUN_SECRET` to the workflow project and enable Vercel system environment variables.
+9. Add all values from [`.env.example`](../.env.example) to the agent project, including the workflow production URL and matching run secret.
+10. Confirm the configured commit author belongs to the project owner or team, then redeploy both projects.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?project-name=gtm-agent&repository-name=gtm-agent&repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D&env=GTM_WORKSPACE_REPOSITORY&env=GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS&env=GTM_AGENT_ALLOWED_SLACK_USER_IDS&envDescription=Set%20the%20workspace%20repository%20and%20the%20exact%20Slack%20channel%20and%20user%20allowlists.)
+## Slack boundary
 
-The button creates the Vercel project, connects Slack, and asks for the workspace repository plus both Slack allowlists.
+Subscribe the Slack app to `app_mention` and `message.channels`; add `message.groups` for private allowlisted channels. It needs `app_mentions:read`, `chat:write`, and the matching channel-history scope. Add the app to every allowlisted channel. DMs and unmentioned top-level messages are ignored; replies continue an existing agent thread.
 
-GitHub connector creation cannot currently be guaranteed by the Deploy Button without a trigger. After deployment:
+## Troubleshooting
 
-1. Create a GitHub connector with `vercel connect create github` or in the project’s Connect settings.
-2. Grant it access only to the repository named by `GTM_WORKSPACE_REPOSITORY`.
-3. Set the returned connector identifier as `GITHUB_CONNECTOR`.
-4. Create one Vercel project connected to the workspace repository. Set Root Directory to `workflows`, Production Branch to `main`, skip builds when `workflows/` is unchanged, and expose Vercel system environment variables.
-5. Configure that project with the workspace Turso pair, `GTM_RUN_SECRET`, matching `CRON_SECRET` when schedules exist, and the budgeted Gateway key and provider variables it needs.
-6. Set `GTM_WORKSPACE_COMMIT_AUTHOR_NAME` and `GTM_WORKSPACE_COMMIT_AUTHOR_EMAIL` to the verified Git identity connected to the Vercel project owner (Hobby) or project team member (Pro). The GitHub App remains the committer.
-7. Set `GTM_WORKFLOW_VERCEL_URL` and the matching `GTM_WORKFLOW_RUN_SECRET` on the Eve project. Add a Trusted Sources rule permitting this Eve production project to call the protected workflow production project with OIDC.
-8. Redeploy Eve.
+- **An allowed mention gets no reply:** check that both the channel ID and user ID are in the exact allowlists.
+- **Startup fails:** compare the deployment's variables with [`.env.example`](../.env.example); all eleven non-optional values are required.
+- **Vercel rejects the Git author:** map the configured author email to the project owner or team member.
+- **The workflow build reports a Node mismatch:** set the workflow project's Node.js version to 22.x.
+- **A run route returns 401:** make `GTM_RUN_SECRET` identical on the workflow and agent projects.
 
-`GITHUB_CONNECTOR` and `GTM_WORKSPACE_REPOSITORY` must either both be set or both be absent.
-
-### Minimal — Slack only
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?project-name=gtm-agent&repository-name=gtm-agent&repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D&env=GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS&env=GTM_AGENT_ALLOWED_SLACK_USER_IDS&envDescription=Set%20the%20comma-separated%20exact%20Slack%20channel%20and%20user%20allowlists.)
-
-Leave `GITHUB_CONNECTOR` and `GTM_WORKSPACE_REPOSITORY` unset. The agent can load the bundled workflows and explain their prerequisites without inventing another memory system.
-
-### Configure the Slack boundary
-
-For either deployment:
-
-1. Set `GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS` to comma-separated public (`C...`) or private (`G...`) channel IDs. Set `GTM_AGENT_ALLOWED_SLACK_USER_IDS` to comma-separated user IDs (`U...` or `W...`). Duplicate, empty, malformed, and DM (`D...`) IDs are rejected.
-2. In the Slack connector's advanced settings, subscribe to `app_mention` and `message.channels`. Add `message.groups` if any allowlisted channel is private. The bot needs `app_mentions:read` and `chat:write`. Add `channels:history` for allowlisted public channels and `groups:history` for allowlisted private channels.
-3. Keep Slack interactivity enabled at `/eve/v1/slack` so Eve can deliver approval and question controls. Add the app to every allowlisted channel. This template does not need `message.im`, `im:history`, or reaction events.
-
-A new request must mention `@gtm-agent`. Once the agent has replied in a thread, an allowlisted person can keep replying in that thread without another mention, and each reply continues the same session. Unmentioned top-level messages, DMs, bot posts, and message edits or deletions never start a turn. Every accepted message receives thread messages since the app's previous reply. Eve 0.47.1 fetches at most the first 50 messages in a thread, so discussion beyond that cap may not reach the agent.
-
-### Optional — host GTM workflows against your Turso database
-
-Workflow hosting needs the connected workspace. After the GitHub connector works:
-
-1. Create one Turso database for this workspace, for example by installing the Turso integration from the Vercel Marketplace on the agent project. It sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`; otherwise set both yourself. The URL must be a bare `libsql://` or `https://` host.
-2. Create a read-only token for the same database with `turso db tokens create <database> --read-only` and set it as `TURSO_READ_ONLY_AUTH_TOKEN`. It must differ from `TURSO_AUTH_TOKEN`.
-3. If accepted workflow adapters call third-party providers, list their exact hostnames in `GTM_WORKFLOW_PROVIDER_HOSTS`, comma-separated. The sandbox reaches them without credentials; paid calls happen on Vercel.
-4. Redeploy.
-
-Every sandbox session then runs with `GTM_SANDBOX=1`, `GTM_AGENT_BACKEND=api`, and `TURSO_DATABASE_URL`. The read-only token is injected at the sandbox firewall for every session; the write token is injected only while an approved save applies migrations. Neither enters the sandbox. Sandbox egress opens only to the npm registry, your Turso host, and the listed provider hosts.
-
-The sandbox authors, validates, and dry-runs workflows; it never starts a real run. The approved workspace commit to `main` triggers the Git-connected workflow deployment. Eve applies declared migrations before the commit, waits for the exact Git SHA to be live before an approved real run, and can cancel a live run through a separate approval. The sandbox still has no Vercel CLI, deploy credential, or model key.
-
-### Optional — let an owner propose agent instruction and schedule changes
-
-This feature opens draft pull requests; it never updates `main`, merges, or deploys.
-
-1. Create a separate Vercel Connect GitHub connector and install its managed GitHub App only on the repository that contains this agent deployment.
-2. Set `EVE_SOURCE_GITHUB_CONNECTOR` to that connector identifier and `EVE_SOURCE_REPOSITORY` to the exact `owner/repo` connected to the Vercel project.
-3. Set `EVE_SOURCE_ALLOWED_SLACK_USER_IDS` to the comma-separated Slack user IDs allowed to request and approve source proposals. Keep this narrower list inside `GTM_AGENT_ALLOWED_SLACK_USER_IDS`.
-4. Confirm the Vercel project exposes Git system environment variables, then redeploy.
-
-An allowed caller can ask Eve to change its instructions or a direct native schedule. Eve shows the complete frozen diff first. After the caller accepts it, native tool approval authorizes creation of a namespaced branch and draft pull request. Every broader source change stays outside this capability.
-
-## 3. Verify the deployment
-
-Open the production deployment’s `/eve/v1/health` endpoint. It should report healthy before you test Slack.
-
-`SLACK_CONNECTOR` and both `GTM_AGENT_ALLOWED_SLACK_*` allowlists are required in production. The `slack/my-agent` connector and empty development allowlists exist only for local build-time validation. Empty development allowlists admit nobody.
-
-## 4. Ask the first question in Slack
-
-For Slack-only mode, try:
-
-```text
-@gtm-agent What GTM workflows can you help me with, and which ones require a connected workspace?
-```
-
-With a fresh repository that has only a README, try:
-
-```text
-@gtm-agent Set up our GTM workspace.
-```
-
-The agent asks for the organization's name, website, and links, researches them, shows the complete proposed organization file, and after your acceptance and approval saves it with the workspace contract files as its first commit on `main`. Suborganizations, members, ICPs, and personas follow in the same thread.
-
-With a workspace connected, try:
-
-```text
-@gtm-agent Read our saved ICPs and tell me which one best fits example.com. Cite the facts you used.
-```
-
-With workflow hosting configured, try:
-
-```text
-@gtm-agent Create a workflow that scores a list of domains against our enterprise ICP, show me the dry run, and stop before any real spend.
-```
-
-When a workspace-dependent job lacks the required repository, ICPs, or personas, GTM Agent stops and explains the missing prerequisite instead of fabricating workspace content.
-
-## 5. Review a durable workspace change
-
-GTM Agent can propose changes only to the documented root contract, organization, ICP, persona, member, and suborganization paths, plus the tracked files of the root `workflows/` project. It never submits `.env` files, `node_modules/`, or workflow runtime state; those stay ignored inside the sandbox checkout.
-
-Before any write, Eve’s native approval gate shows the summary, complete affected-path manifest, expected Git HEAD, and full additions or deletions. An approved request creates exactly one commit on `main`. A denial, invalid request, or changed remote HEAD creates no commit.
-
-## 6. Troubleshoot the common setup issues
-
-- **The agent fails at startup:** confirm `SLACK_CONNECTOR` and both `GTM_AGENT_ALLOWED_SLACK_*` allowlists are set. For workspace mode, confirm both GitHub variables are set and the repository has a `main` branch with at least one commit; a repository created without a README has no branch to clone, so push any first commit or recreate it with a README.
-- **An allowed mention gets no reply:** confirm both the user's ID and channel ID are allowlisted, the app is in the channel, and the connector has the matching `channels:history` or `groups:history` scope.
-- **A thread reply without a mention gets no reply:** confirm the agent already replied in that thread, the connector subscribes to `message.channels` (or `message.groups` for a private channel), and the reply came from an allowlisted user. Replies from anyone else are ignored by design.
-- **The agent says the workspace is not set up yet:** the connected repository has no root `ORG.md`. Ask it in Slack to set up the GTM workspace. Until that first scaffold is saved, every other workspace write is refused.
-- **The GitHub connector was not created:** create it with `vercel connect create github` or in Vercel Connect settings, grant one repository, set `GITHUB_CONNECTOR`, and redeploy.
-- **A write reports a conflict:** another writer advanced `main`. Start a fresh Slack thread so the agent reads the new HEAD.
-- **A commit succeeded but the session is stale:** the change is durable on GitHub; start a fresh Slack thread before the next change.
-- **The agent says workflow hosting is not configured:** set `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `TURSO_READ_ONLY_AUTH_TOKEN` on a deployment that already has the GitHub workspace variables, then redeploy.
-- **A Git deployment is blocked by its author:** configure the commit-author name and verified email to map to the Vercel project owner or team member, then create a fresh commit.
-- **A production workflow cannot start:** set both `GTM_WORKFLOW_VERCEL_URL` and `GTM_WORKFLOW_RUN_SECRET`, confirm the workflow project is connected to the workspace repository's `main` branch with root `workflows`, and confirm system environment variables and the Trusted Sources rule are enabled.
-- **A workflow model call fails with a missing Gateway key:** set a budgeted `AI_GATEWAY_API_KEY` on the Vercel workflow project, not on the agent; the sandbox never runs a workflow.
-- **A workflow adapter cannot reach its provider:** add the exact hostname to `GTM_WORKFLOW_PROVIDER_HOSTS`; the sandbox denies every other host.
-- **The source editor is unavailable:** set all three `EVE_SOURCE_*` variables, ensure the connector is attached to this Vercel project and installed on the agent repository, expose Git system environment variables, and redeploy.
-- **A source proposal says the repository changed:** the deployed revision no longer equals current `main`. Wait for the newest production deployment, then start a fresh Slack thread.
-
-## Where to go next
-
-- Return to the [GTM Agent overview](../README.md).
-- Review the enforced [security model](../SECURITY.md).
-- Read the GTM Agent [MIT license](../LICENSE).
-- Review the bundled GTM Skills [MIT license](../LICENSES/gtm-skills-MIT.txt).
-- [Open an issue](https://github.com/eliasstravik/gtm-agent/issues) if you find a problem or want to suggest an improvement.
+The sandbox can edit and dry-run inside `/workspace`, but it has no model key, Vercel token, database write token, or unbrokered GitHub token. Real runs happen only on the hosted workflow project.
