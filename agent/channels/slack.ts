@@ -1,5 +1,6 @@
 import { connectSlackCredentials } from "@vercel/connect/eve";
 import { defaultSlackAuth, slackChannel, type SlackChannelConfig, type SlackMessage } from "eve/channels/slack";
+import { approvalCardText } from "../lib/approval.ts";
 import { getConfiguration, type Configuration } from "../lib/config.ts";
 
 type State = { pushApprovals?: Record<string, boolean> };
@@ -20,9 +21,7 @@ export function createSlackChannelConfig(config: Configuration["slack"]): SlackC
     events: {
       "input.requested": async (data, channel) => {
         for (const request of data.requests) {
-          const summary = request.kind === "tool-approval" && typeof request.action.input.summary === "string"
-            ? request.action.input.summary.trim() : request.prompt.trim();
-          const text = summary.slice(0, 700) || "Approve this action?";
+          const text = approvalCardText(request);
           const options = request.options ?? [];
           const approve = options.find((option) => option.id === "approve");
           const cancel = options.find((option) => option.id === "cancel");

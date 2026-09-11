@@ -14,7 +14,8 @@
     "start": "eve start",
     "typecheck": "tsc --noEmit",
     "eval": "eve eval",
-    "check": "pnpm fetch-skills && pnpm typecheck && eve build"
+    "check": "pnpm fetch-skills && pnpm typecheck && pnpm test && eve build",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@vercel/connect": "2.0.0",
@@ -30,6 +31,6 @@
   },
   "packageManager": "pnpm@10.14.0",
   "gtm": {
-    "skillsRelease": "v1.0.0"
+    "skillsRelease": "simplify"
   }
 }
