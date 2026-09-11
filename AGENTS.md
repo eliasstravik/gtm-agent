@@ -1,30 +1,29 @@
 # Repository guidance
 
-This is a deliberately small [Eve](https://eve.dev) Slack agent template. Preserve that shape.
+This is a deliberately small [Eve](https://eve.dev) Slack agent. It is a keyboard user in a box: it runs the same GTM skills and the same commands a person runs in Claude Code, inside a sandbox whose credentials live at the firewall. Preserve that shape.
 
 ## Commands
 
 - Install with `pnpm install --frozen-lockfile`.
-- Run all release checks with `pnpm check`.
-- Run live, credentialed evals only with `pnpm eval` against an explicitly selected target.
-- Sync the exact approved skill set with `pnpm skills:sync /path/to/gtm-skills`; never hand-edit vendored skill files.
+- `pnpm check` fetches the pinned skills release, typechecks, runs the tests, and builds.
+- `pnpm fetch-skills` installs `gtm-skills` at the ref in `package.json` `gtm.skillsRelease` into `agent/skills/` (generated, ignored). Never hand-edit those files; change `gtm-skills` and move the pin.
+- Live, credentialed evals run only with `pnpm eval` against an explicitly selected target.
 
 ## Architecture boundaries
 
-- Keep Slack as the only channel and `apply_gtm_workspace_changes` as the only direct-to-`main` authored write tool. `source_editor` may create only a namespaced branch and draft pull request for its fixed agent repository.
-- Keep the workspace repository optional. Do not add alternate memory, Blob, a custom web or workflow UI, generic GitHub tools, or multi-tenant infrastructure.
-- The only database is the user's own Turso database, configured per deployment with `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `TURSO_READ_ONLY_AUTH_TOKEN` for the vendored `gtm-workflow` runtime. GTM workflow schedules remain Vercel Cron entries on the user's workflow project. Native Eve schedules under `agent/schedules/` are allowed for agent-level behavior. Add no agent-owned database or cache.
-- Before adding or changing self-modification, agent-source editing, native schedule CRUD, or the source-editing subagent, read `docs/agent-self-management.md`. Preserve its principal, path, checkout, exact-diff, approval, and draft-only boundaries. The agent never merges or deploys source proposals.
-- Keep GitHub access repository-bound, short-lived, approval-gated, and atomic on `main`. Workflow hosting requires the connected workspace; its Vercel project deploys that repository's `workflows/` root from `main`.
-- Keep the sandbox at deny-all egress except the exact workflow allowlist derived from configuration (npm registry, the workspace Turso host with the read-only token, accepted provider hosts without credentials). The sandbox never starts a real run and holds no model key. Never expose a sandbox port or enable `api.vercel.com`; workflow deployment comes from the repository's Vercel Git connection.
-- Never expose connector tokens to sandbox commands or persist a Git remote or credentials in the checkout. The read-only Turso token is brokered at the sandbox firewall for every session; the write token is brokered only inside the approval-gated migration and ledger-verification step and withdrawn before the commit. The only session-environment delivery is `TURSO_DATABASE_URL`, which is not a credential; do not add session-environment delivery of any token.
-- Treat `agent/skills/` as generated, license-carrying source. `skills-lock.json` is its integrity manifest.
+- Slack is the only channel. The only tools are `bash` and `watch_url`; the skills provide every workflow behavior.
+- Saving is `git push` from the sandbox. Running is `gtm run --url <production>` from the sandbox. The workflow itself never runs in the sandbox.
+- Approval is a policy on `bash`: the classifier in the skill decides `allow` or `ask`; an `ask` needs plain card text and one user approval, then the identical command and text may replay twice. The card shows the summary only, never a command or JSON.
+- Secrets never enter the sandbox. The firewall replaces three placeholders per request: the CLI run bearer, the CLI Turso token, and git's `x-access-token:gtm-sandbox` Basic header. Egress is limited to the npm registry, GitHub, the workflow host, and the Turso host.
+- `watch_url` reads only `/api/deployment`, `/api/runs/<id>`, and `/api/runs/latest?workflow=&head=` on the workflow host.
+- The only database is the workspace's own Turso database. Add no agent-owned database, memory, web UI, or multi-tenant infrastructure.
+- Instructions stay under 300 words and declare surface facts only; behavior belongs in the skills.
 
 ## Useful documentation
 
+- Host contract the skills expect: `agent/skills/gtm-workflow/../../docs/gtm-agent-requirements.md` in the gtm-skills repository
 - Eve project structure: https://eve.dev/docs/getting-started/project-structure
 - Eve Slack channel: https://eve.dev/docs/channels/slack
 - Eve sandbox: https://eve.dev/docs/sandbox
-- Eve human-in-the-loop tools: https://eve.dev/docs/human-in-the-loop
-- Eve skills: https://eve.dev/docs/skills
+- Eve tools and approval: https://eve.dev/docs/tools
 - Vercel deployment: https://eve.dev/docs/deploy/vercel
