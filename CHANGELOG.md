@@ -2,7 +2,7 @@
 
 ## 1.0.3 - 2026-09-11
 
-- `pnpm build` no longer needs the production secrets. Model, reasoning, and the Slack channel resolve from their own variables at module scope, so CI, preview deployments, and local builds compile again; an unconfigured Slack channel outside production admits nobody. Production builds still fail fast on incomplete configuration.
+- `pnpm build` no longer needs the production secrets. The agent, the Slack channel, and the sandbox backend that Vercel prewarms at build time read a build configuration that substitutes inert placeholders when the environment is entirely unconfigured outside production, so CI, preview deployments, and local builds compile again. Production, and any partially configured environment, is still validated in full at build time.
 - Upgrading from 0.9: `GTM_WORKFLOW_VERCEL_URL` became `GTM_WORKFLOW_URL` and `GTM_WORKFLOW_RUN_SECRET` became `GTM_RUN_SECRET`. Add both to the agent project before merging, or the production build fails with `GTM_WORKFLOW_URL is required`.
 
 ## 1.0.0 - 2026-09-11

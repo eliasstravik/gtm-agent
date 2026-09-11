@@ -1,13 +1,13 @@
 import { getToken } from "@vercel/connect";
 import { defineSandbox } from "eve/sandbox";
 import { vercel } from "eve/sandbox/vercel";
-import { getConfiguration } from "./lib/config.ts";
+import { getBuildConfiguration, getConfiguration } from "./lib/config.ts";
 import { gitAuthorization, sessionEnvironment } from "./lib/workflow-session.ts";
 import { hydrateWorkspace } from "./lib/workspace-checkout.ts";
 
 export default defineSandbox({
   backend: () => {
-    const config = getConfiguration();
+    const config = getBuildConfiguration();
     return vercel({
       image: "vercel/sandbox/node:22",
       networkPolicy: "deny-all",

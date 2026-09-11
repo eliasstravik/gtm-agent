@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseConfiguration, resolveAgentModel, resolveAgentReasoning, resolveSlackConfiguration } from '../agent/lib/config.ts';
+import { parseConfiguration, resolveAgentModel, resolveAgentReasoning, resolveBuildConfiguration } from '../agent/lib/config.ts';
 
 const base = {
   SLACK_CONNECTOR: 'slack/agent',
@@ -49,13 +49,18 @@ test('model and reasoning resolve from their own variables without the rest of t
   assert.throws(() => resolveAgentReasoning({ GTM_AGENT_REASONING: 'extreme' }), /GTM_AGENT_REASONING must be one of/);
 });
 
-test('outside production an unconfigured Slack channel admits nobody instead of failing the build', () => {
-  assert.deepEqual(resolveSlackConfiguration({}), { connector: 'slack/unconfigured', allowedChannelIds: [], allowedUserIds: [] });
-  assert.deepEqual(resolveSlackConfiguration({ VERCEL_ENV: 'preview' }), { connector: 'slack/unconfigured', allowedChannelIds: [], allowedUserIds: [] });
+test('outside production an entirely unconfigured environment yields inert placeholders so the build succeeds', () => {
+  for (const env of [{}, { VERCEL_ENV: 'preview' }, { VERCEL: '1', GTM_AGENT_MODEL: 'openai/gpt-5' }]) {
+    const config = resolveBuildConfiguration(env);
+    assert.deepEqual(config.slack, { connector: 'slack/unconfigured', allowedChannelIds: [], allowedUserIds: [] });
+    assert.equal(config.workflow.host, 'unconfigured.invalid');
+    assert.equal(config.turso.host, 'unconfigured.turso.invalid');
+    assert.equal(config.workspace.repository, 'unconfigured/gtm-workspace');
+  }
 });
 
-test('a production or partially configured Slack channel is still validated', () => {
-  assert.throws(() => resolveSlackConfiguration({ VERCEL_ENV: 'production' }), /SLACK_CONNECTOR is required/);
-  assert.throws(() => resolveSlackConfiguration({ SLACK_CONNECTOR: 'slack/agent' }), /GTM_AGENT_ALLOWED_SLACK_CHANNEL_IDS is required/);
-  assert.deepEqual(resolveSlackConfiguration(base), parseConfiguration(base).slack);
+test('a production or partially configured environment is validated in full at build time', () => {
+  assert.throws(() => resolveBuildConfiguration({ VERCEL_ENV: 'production' }), /GTM_WORKSPACE_REPOSITORY is required/);
+  assert.throws(() => resolveBuildConfiguration({ SLACK_CONNECTOR: 'slack/agent' }), /GTM_WORKSPACE_REPOSITORY is required/);
+  assert.deepEqual(resolveBuildConfiguration(base), parseConfiguration(base));
 });
