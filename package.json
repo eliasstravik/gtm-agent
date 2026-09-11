@@ -31,6 +31,6 @@
   },
   "packageManager": "pnpm@10.14.0",
   "gtm": {
-    "skillsRelease": "simplify"
+    "skillsRelease": "v1.0.0"
   }
 }
