@@ -1,5 +1,6 @@
 import { defineAgent } from "eve";
 
 export default defineAgent({
-  model: "openai/gpt-5.6-luna-fast",
+  // A deployment picks its model in the project settings; the template default applies when the variable is unset.
+  model: process.env.GTM_AGENT_MODEL || "openai/gpt-5.6-luna-fast",
 });
