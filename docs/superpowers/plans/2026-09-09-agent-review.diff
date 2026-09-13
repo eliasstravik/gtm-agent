@@ -1,0 +1,923 @@
+3d9127e feat(agent): show workflow diagrams and where-to-look links in Slack
+0fe3d4b feat(slack): upload the workflow diagram with the where-to-look block
+c29655e feat(workflow): read-only diagram action
+a47a198 feat(workflow): mint and probe signed diagram links from the host
+14d6fdc feat(workflow): sign diagram links and derive where-to-look links
+ agent/channels/slack.ts                    |   8 +-
+ agent/instructions.md                      |   2 +
+ agent/lib/diagram-link.ts                  |  56 ++++++++++++
+ agent/lib/slack-diagram-post.ts            | 103 +++++++++++++++++++++
+ agent/lib/workflow-control.ts              | 142 +++++++++++++++++++++++++++--
+ agent/tools/operate_gtm_workflow.ts        |  20 +++-
+ tests/diagram-link.test.mjs                |  46 ++++++++++
+ tests/instructions.test.mjs                |   2 +
+ tests/slack-diagram-post.test.mjs          |  71 +++++++++++++++
+ tests/workflow-control.test.mjs            | 100 ++++++++++++++++++++
+ tests/workflow-operation-approval.test.mjs |  14 +++
+ 11 files changed, 553 insertions(+), 11 deletions(-)
+diff --git a/agent/channels/slack.ts b/agent/channels/slack.ts
+index e277da5..1aefc82 100644
+--- a/agent/channels/slack.ts
++++ b/agent/channels/slack.ts
+@@ -4,20 +4,21 @@ import {
+   slackChannel,
+   type SlackChannelConfig,
+   type SlackMessage,
+ } from "eve/channels/slack";
+ 
+ import {
+   getConfiguration,
+   type SlackConfiguration,
+ } from "../lib/config.ts";
+ import { createInputRequestedHandler } from "../lib/slack-approval-cards.ts";
++import { createDiagramResultHandler } from "../lib/slack-diagram-post.ts";
+ 
+ const configuration = getConfiguration();
+ 
+ /**
+  * Slack `message` subtypes that represent a new human post. Eve's channel
+  * message path does not filter subtypes, so edits (`message_changed`),
+  * deletions (`message_deleted`), joins, topic changes, and bot posts would
+  * otherwise reach `onMessage`.
+  */
+ const HUMAN_POST_SUBTYPES = new Set(["file_share", "thread_broadcast"]);
+@@ -45,21 +46,26 @@ export function createSlackChannelConfig(
+       allowedChannels.has(message.channelId) &&
+       allowedUsers.has(author.userId)
+     );
+   }
+ 
+   return {
+     credentials: connectSlackCredentials(slack.connector),
+     threadContext: { since: "last-agent-reply" },
+     // A GTM approval shows only the tool's plain-language summary with
+     // Approve and Cancel; Eve's default card would append the raw tool input.
+-    events: { "input.requested": createInputRequestedHandler() },
++    // The diagram handler uploads the workflow picture into the thread; Eve
++    // calls it as (data, channel, ctx) and the extra argument is ignored.
++    events: {
++      "input.requested": createInputRequestedHandler(),
++      "action.result": createDiagramResultHandler(),
++    },
+     onAppMention(ctx, message) {
+       if (!isAllowedHuman(message)) {
+         return null;
+       }
+       return { auth: defaultSlackAuth(message, ctx) };
+     },
+     // An unmentioned reply continues a thread only when the agent already
+     // holds a session for it. Eve routes mentioned messages to onAppMention
+     // and never to onMessage, so a mention cannot start two turns. Top-level
+     // channel messages have no agent session and are ignored here.
+diff --git a/agent/instructions.md b/agent/instructions.md
+index 91ba528..b7e0c15 100644
+--- a/agent/instructions.md
++++ b/agent/instructions.md
+@@ -32,20 +32,22 @@ You are GTM Agent, a careful, evidence-backed GTM teammate. Keep Slack replies c
+ # GTM workflows in this sandbox
+ 
+ - Every session runs with `GTM_SANDBOX=1` and `GTM_AGENT_BACKEND=api`. When the deployment hosts workflows, `TURSO_DATABASE_URL` names the workspace's own Turso database. The firewall brokers a read-only Turso token for the whole session, so the sandbox can query but never write; it brokers the write token only while `apply_gtm_workspace_changes` applies accepted migrations. No model key reaches the sandbox. Tokens never appear in the environment, a file, or command output. When `TURSO_DATABASE_URL` is absent, workflow hosting is not configured for this deployment; say so and stop before any workflow or database command.
+ - This sandbox never starts a real run. It authors, validates with `npm run gtm -- check`, dry-runs with `npm run gtm -- run <slug> --input <file> --dry-run`, and queries with `npm run gtm -- query`. Real runs, approvals, and cancellations happen only on Vercel through `operate_gtm_workflow`. Recommend `Runs: on Vercel` for every workflow proposed here; a `Runs: on this computer` workflow can be authored but only a keyboard user can run it.
+ - Build a new scaffold under `$HOME/.gtm-scratch/<repo>/workflows/` and reuse it for the session. Submit only accepted tracked files through `apply_gtm_workspace_changes`: it accepts root `workflows/` paths such as `workflows/package.json`, `workflows/workflows/<slug>.ts`, tables, adapters, migrations, and the versioned lib, routes, scripts, and config, and it refuses `.env*` other than `.env.example`, `node_modules/`, and ignored runtime state. Omit empty placeholder files. One mutation holds at most 100 paths; a larger move needs the user's agreement to split it.
+ - In every `apply_gtm_workspace_changes` request, list each `workflows/drizzle/*.sql` addition in `migrations` and include its generated `workflows/drizzle/meta/_journal.json` update in the same batch; schema DDL also requires its numbered snapshot, while a custom data-only migration may have none. Never author orphan migration SQL. Set `destructive` to true only when a migration drops a table, column, or index, truncates, or deletes rows. State each migration's effect in the summary in words, and for a destructive one name the table or column and the rows affected, because the approval shows only the summary. The tool refuses undeclared or unregistered SQL and confirms every accepted SQL hash is in `__drizzle_migrations` before committing.
+ - Keep local work labeled `Runs: on this computer`; label hosted work `Runs: on Vercel` and use the trusted controls below when they are configured.
+ - Inside the checkout, these ignored paths under `workflows/` are writable without approval and never submitted: `node_modules/`, `.env`, `.env.turso`, `.workflow-data/`, `.nitro/`, `.output/`, and `data/`. The host installs locked workflow dependencies when it hydrates an existing scaffold. If a refresh delivers a new or changed scaffold and `node_modules/.bin/tsx` is missing, run `npm ci --include=dev --ignore-scripts --no-audit --no-fund` before any workflow or database inspection. Installing those locked local dependencies is setup, not a workflow or database operation; do it even when the user says not to run a workflow. Write run inputs to the ignored `workflows/data/` directory. Never print, paste, or echo a token, secret, or key.
+ - Egress is limited to the npm registry, the workspace Turso host, and the deployment's accepted provider hosts, which carry no credential. `api.vercel.com` stays closed and the sandbox has no Vercel CLI. The workflow Vercel project deploys `main` from the connected workspace repository with Root Directory `workflows`. When trusted workflow control is configured, use `operate_gtm_workflow` to preview, start, inspect, approve, and cancel it. The tool keeps the production run bearer, OIDC identity, and hook token in the host runtime. When trusted control is absent, keep production runs as keyboard follow-ups.
+ - For `Runs: on Vercel`, the summary's workflow description ends with `Saving this also puts it live in production.` `apply_gtm_workspace_changes` applies accepted workflow migrations and verifies their ledger hashes before its atomic commit. If it reports that migrations were already applied but the commit failed, say exactly that, then re-propose the same idempotent batch in a fresh thread. If ledger verification fails, do not claim success or retry: report that the database may have changed and inspect it first. After the save, close with `Saved.` and `It will be live in production in a few minutes; ask me to check.`; when asked, call the read-only deployment action with the saved commit and answer `Live.` or `Not yet live.` Before a real run, call the read-only run preview, show rows, stages, projected cost, caps, writes, and checkpoint, then use the approval-gated start action with `expectedRows` and `expectedProjectedCostUsd` copied from the preview the user accepted; start refuses when a fresh dry run differs. It waits until production reports that exact commit SHA and rechecks the SHA in the start request. Poll with the status action. Resolve a waiting run through the approval-gated decision action; never request or reveal its hook token. Stop a live run with the approval-gated cancel action and report that cancellation takes effect at the next step boundary and refunds nothing. Every approval-gated `operate_gtm_workflow` action carries its whole proposal in `summary` under the same rules as a save, with the closing line for that action: start `Approve to run, or Cancel and tell me what to change.`; continue at a checkpoint `Approve to continue the run, or Cancel to leave it paused and tell me what to do.`; stop a paused run `Approve to stop the run here, or Cancel to leave it paused.`; cancel a live run `Approve to stop the run, or Cancel to leave it running.` Run reports stay in business terms with no commands or run identifiers.
++- Show the workflow picture at the moments the workflow skill names (inspect or `show me the workflow`; with a create or update proposal; at run start, each checkpoint, and completion) by calling the read-only diagram action with the workflow path and, for a run, its run key. The channel uploads the picture and the three "Where to look" lines into the thread on its own; your reply adds the caption the skill describes and does not repeat the links. For a create or update proposal, the picture comes from `npm run gtm -- diagram <slug> --format ascii` in the scratch draft, because the draft is not deployed yet. Never paste the image link, the signed link, or a run key into a message; when the action reports `protected`, relay its message and stop.
++- Only a `Runs: on Vercel` workflow has a hosted picture. For a `Runs: on this computer` workflow, relay the ASCII diagram from the sandbox and say that the interactive page opens from a keyboard.
+ - Run no remote Git command in sandbox mode. The host owns durable repository writes.
+ - Expose no sandbox port, start no local workflow server, and open no Drizzle Studio. Relay hosted run state with the status action and row state with `npm run gtm -- query --sql "select * from <table> limit 20" --format markdown`; the user inspects tables through the Turso dashboard.
+ - Answer a preview, start, or checkpoint decision within the same session when you can; a waiting Vercel run survives the session and can be resumed or cancelled from a fresh thread by run key.
+ 
+ # Fixed connection boundaries
+ 
+ - The bundled skills govern domain behavior and their own no-workspace prerequisites. If no repository exists, do not invent alternate memory or an alternate operating mode.
+ - This Slack deployment may update, delete, or doctor content inside its configured repository. Refuse requests to create a different workspace repository, import, configure connection sharing, or perform whole-workspace deletion; those change which repository is connected and require `/gtm-workspace` at a keyboard.
+ - When the connected checkout has no root `ORG.md` and no legacy `org.md`, the connected workspace is not set up yet, and a request to create or set up the workspace targets the connected repository: run the `gtm-workspace` create flow with its connected-repo substitutions. This environment answers the keyboard steps: git is present, the checkout is the target and needs no `~/.gtm/<org-slug>` collision check, no git init or repo-local identity is set, and the sharing question is skipped because the deployment already shares the repository. The first accepted proposal is one `apply_gtm_workspace_changes` request that writes `ORG.md` together with `AGENTS.md`, `CLAUDE.md`, and `.gitignore` rendered from the skill templates; the tool refuses any other write until root `ORG.md` exists. Later accepted artifacts use the ordinary write path. Leave a README or any other file outside the contract untouched.
+ - Never send private repository content, internal names, or confidential facts to public web searches or external URLs unless the user explicitly permits that disclosure. `web_search` and `web_fetch` run on the host, outside the sandbox firewall: a query or URL is a disclosure. Fetch only plain public URLs from the workspace, never a URL carrying a token, and never put workspace facts into a search query without permission.
+diff --git a/agent/lib/diagram-link.ts b/agent/lib/diagram-link.ts
+new file mode 100644
+index 0000000..edea782
+--- /dev/null
++++ b/agent/lib/diagram-link.ts
+@@ -0,0 +1,56 @@
++import { createHmac } from "node:crypto";
++
++export type DiagramClaims = { readonly path: string; readonly run: string | null; readonly exp: number };
++export type WhereToLook = { readonly diagram: string; readonly runs: string; readonly data: string };
++
++export function signDiagram(claims: DiagramClaims, secret: string): string {
++  return createHmac("sha256", secret)
++    .update(`diagram|${claims.path}|${claims.run ?? "-"}|${claims.exp}`)
++    .digest("base64url");
++}
++
++function diagramQuery(claims: DiagramClaims, secret: string): string {
++  const query = new URLSearchParams();
++  if (claims.run) query.set("run", claims.run);
++  query.set("exp", String(claims.exp));
++  query.set("sig", signDiagram(claims, secret));
++  return query.toString();
++}
++
++export function diagramLinks(input: {
++  readonly productionUrl: string;
++  readonly claims: DiagramClaims;
++  readonly secret: string;
++}): { url: string; imageUrl: string } {
++  const query = diagramQuery(input.claims, input.secret);
++  return {
++    url: `${input.productionUrl}/gtm/diagram/${input.claims.path}?${query}`,
++    imageUrl: `${input.productionUrl}/api/diagram-image/${input.claims.path}?${query}`,
++  };
++}
++
++export function vercelObservabilityUrl(team: string, project: string): string {
++  return `https://vercel.com/${encodeURIComponent(team)}/${encodeURIComponent(project)}/observability/workflows`;
++}
++
++/** Turso hosts look like `<db>-<org>.turso.io` or `<db>-<org>.<region>.turso.io`; the org has no hyphen. */
++export function tursoDashboardUrl(databaseUrl: string | null): string {
++  if (databaseUrl === null) return "https://app.turso.tech";
++  let host: string;
++  try {
++    host = new URL(databaseUrl).hostname;
++  } catch {
++    return "https://app.turso.tech";
++  }
++  const match = host.match(/^([a-z0-9-]+)-([a-z0-9]+)(?:\.[a-z0-9-]+)*\.turso\.io$/);
++  if (!match) return "https://app.turso.tech";
++  return `https://app.turso.tech/${match[2]}/databases/${match[1]}`;
++}
++
++export function whereToLookText(links: WhereToLook): string {
++  return [
++    `Diagram: <${links.diagram}|Open the diagram>`,
++    `Runs (needs Vercel access): <${links.runs}|Open the runs>`,
++    `Data: <${links.data}|Open the data>`,
++  ].join("\n");
++}
+diff --git a/agent/lib/slack-diagram-post.ts b/agent/lib/slack-diagram-post.ts
+new file mode 100644
+index 0000000..0ef5e92
+--- /dev/null
++++ b/agent/lib/slack-diagram-post.ts
+@@ -0,0 +1,103 @@
++import { whereToLookText, type WhereToLook } from "./diagram-link.ts";
++
++const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
++const DOWNLOAD_TIMEOUT_MS = 15_000;
++
++/**
++ * The `action.result` payload, kept as wide as Eve's own union: only a
++ * `tool-result` carries `toolName`, so a load-skill or subagent result must
++ * still satisfy this shape.
++ */
++type ActionResultData = {
++  readonly result: {
++    readonly kind: string;
++    readonly toolName?: string;
++    readonly output?: unknown;
++  };
++};
++type ThreadPoster = { readonly thread: { post(input: unknown): Promise<unknown> } };
++
++type DiagramOutput =
++  | {
++      readonly action: "diagram";
++      readonly status: "ready";
++      readonly workflowPath: string;
++      readonly imageUrl: string;
++      readonly links: WhereToLook;
++    }
++  | {
++      readonly action: "diagram";
++      readonly status: "protected";
++      readonly message: string;
++      readonly links: WhereToLook;
++    };
++
++function diagramOutput(value: unknown): DiagramOutput | null {
++  if (typeof value !== "object" || value === null) return null;
++  const output = value as Record<string, unknown>;
++  if (output.action !== "diagram") return null;
++  const links = output.links as Record<string, unknown> | undefined;
++  if (
++    !links ||
++    typeof links.diagram !== "string" ||
++    typeof links.runs !== "string" ||
++    typeof links.data !== "string"
++  ) {
++    return null;
++  }
++  if (
++    output.status === "ready" &&
++    typeof output.imageUrl === "string" &&
++    typeof output.workflowPath === "string"
++  ) {
++    return output as unknown as DiagramOutput;
++  }
++  if (output.status === "protected" && typeof output.message === "string") {
++    return output as unknown as DiagramOutput;
++  }
++  return null;
++}
++
++/**
++ * Posts the workflow picture and the "Where to look" block into the Slack
++ * thread. The image is fetched with no credentials, exactly as a viewer's
++ * browser would, and the model never sees the bytes.
++ */
++export function createDiagramResultHandler(options: { readonly fetch?: typeof fetch } = {}) {
++  const fetchImage = options.fetch ?? globalThis.fetch;
++  return async (data: ActionResultData, channel: ThreadPoster): Promise<void> => {
++    if (data.result.kind !== "tool-result" || data.result.toolName !== "operate_gtm_workflow") {
++      return;
++    }
++    const output = diagramOutput(data.result.output);
++    if (output === null) return;
++    if (output.status === "protected") {
++      await channel.thread.post({ text: output.message });
++      return;
++    }
++    const text = whereToLookText(output.links);
++    let bytes: Uint8Array | null = null;
++    try {
++      const response = await fetchImage(output.imageUrl, {
++        method: "GET",
++        redirect: "manual",
++        signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
++      });
++      const declared = Number(response.headers.get("content-length") ?? 0);
++      if (response.status === 200 && declared <= MAX_IMAGE_BYTES) {
++        const buffer = new Uint8Array(await response.arrayBuffer());
++        if (buffer.byteLength > 0 && buffer.byteLength <= MAX_IMAGE_BYTES) bytes = buffer;
++      }
++    } catch {
++      bytes = null;
++    }
++    if (bytes === null) {
++      await channel.thread.post({
++        text: `${text}\nThe picture could not be downloaded; open the diagram link instead.`,
++      });
++      return;
++    }
++    const filename = `${output.workflowPath.split("/").at(-1)}.png`;
++    await channel.thread.post({ text, files: [{ filename, data: bytes }] });
++  };
++}
+diff --git a/agent/lib/workflow-control.ts b/agent/lib/workflow-control.ts
+index 90aee36..30ee718 100644
+--- a/agent/lib/workflow-control.ts
++++ b/agent/lib/workflow-control.ts
+@@ -1,17 +1,23 @@
+ import { getVercelOidcToken } from "@vercel/oidc";
+ import type { SandboxCommandResult, SandboxSession } from "eve/sandbox";
+ 
+ import type {
+   ConnectedWorkspaceConfiguration,
+   WorkflowControlConfiguration,
+ } from "./config.ts";
++import {
++  diagramLinks,
++  tursoDashboardUrl,
++  vercelObservabilityUrl,
++  type WhereToLook,
++} from "./diagram-link.ts";
+ import { assertWorkspaceCheckoutReady } from "./workspace-checkout.ts";
+ 
+ const MAX_INPUT_BYTES = 1_000_000;
+ const MAX_REMOTE_RESPONSE_BYTES = 1_000_000;
+ const MAX_RESULT_BYTES = 50_000;
+ const COMMAND_TIMEOUT_MS = 2 * 60 * 1_000;
+ const DEPLOYMENT_TIMEOUT_MS = 8 * 60 * 1_000;
+ const POLL_INTERVAL_MS = 2_000;
+ 
+ const WORKFLOW_PATH_PATTERN =
+@@ -48,20 +54,44 @@ export type SanitizedWorkflowRun = {
+   readonly finishedAt: number | null;
+   readonly method: string;
+   readonly path: string;
+   readonly result?: unknown;
+   readonly runKey: string;
+   readonly startedAt: number;
+   readonly status: string;
+   readonly workflow: string;
+ };
+ 
++export type WorkflowDiagram =
++  | {
++      readonly action: "diagram";
++      readonly status: "ready";
++      readonly workflowPath: string;
++      readonly runKey: string | null;
++      readonly url: string;
++      readonly imageUrl: string;
++      readonly expiresAt: string;
++      readonly links: WhereToLook;
++    }
++  | {
++      readonly action: "diagram";
++      readonly status: "protected";
++      readonly workflowPath: string;
++      readonly runKey: string | null;
++      readonly message: string;
++      readonly links: WhereToLook;
++    };
++
++const DIAGRAM_LINK_TTL_MS = 24 * 60 * 60 * 1000;
++const PROTECTED_MESSAGE =
++  "The diagram link is blocked by the production project's deployment protection. In the Vercel project settings, set Vercel Authentication to preview deployments only, or attach a production custom domain, then ask again.";
++
+ type WorkflowControlDependencies = {
+   readonly fetch: typeof fetch;
+   readonly getOidcToken: () => Promise<string>;
+   readonly now: () => number;
+   readonly pause: (milliseconds: number) => Promise<void>;
+ };
+ 
+ const defaultDependencies: WorkflowControlDependencies = {
+   fetch: globalThis.fetch,
+   getOidcToken: getVercelOidcToken,
+@@ -241,20 +271,98 @@ export class WorkflowControl {
+       `/api/approve/${encodeURIComponent(token)}`,
+       {
+         method: "POST",
+         body: JSON.stringify({ approved: input.approved, comment: input.comment }),
+       },
+       [200],
+     );
+     return this.getRun(input.runKey);
+   }
+ 
++  /**
++   * Read-only: mint a signed diagram link and probe the image route exactly as
++   * a Slack viewer's browser will, with no bearer and no OIDC token, so a
++   * protected deployment is reported instead of posting a dead link.
++   */
++  async getDiagram(input: {
++    readonly workflowPath: string;
++    readonly runKey: string | null;
++    readonly databaseUrl: string | null;
++    readonly sandbox: Sandbox;
++  }): Promise<WorkflowDiagram> {
++    if (!WORKFLOW_PATH_PATTERN.test(input.workflowPath)) {
++      throw new Error("The workflow path is invalid.");
++    }
++    if (input.runKey !== null) validateRunKey(input.runKey);
++    const packageJson = record(
++      parseWorkflowPackage(
++        await readCheckoutFile(input.sandbox, this.#workspace, "workflows/package.json"),
++      ),
++    );
++    const vercel = record(record(packageJson?.gtm)?.vercel);
++    const team = directString(vercel, "team");
++    const project = directString(vercel, "project");
++    let runs = team !== null && project !== null
++      ? vercelObservabilityUrl(team, project)
++      : "https://vercel.com";
++    if (input.runKey !== null) {
++      const run = await this.#getRawRun(input.runKey);
++      const runUrl = directString(run, "run_url");
++      if (runUrl !== null) runs = runUrl;
++    }
++    const exp = Math.floor((this.#dependencies.now() + DIAGRAM_LINK_TTL_MS) / 1000);
++    const claims = { path: input.workflowPath, run: input.runKey, exp };
++    const { url, imageUrl } = diagramLinks({
++      productionUrl: this.#configuration.productionUrl,
++      claims,
++      secret: this.#configuration.runSecret,
++    });
++    const links: WhereToLook = {
++      diagram: url,
++      runs,
++      data: tursoDashboardUrl(input.databaseUrl),
++    };
++    const base = {
++      action: "diagram" as const,
++      workflowPath: input.workflowPath,
++      runKey: input.runKey,
++      links,
++    };
++    const probe = await this.#dependencies.fetch(imageUrl, {
++      method: "GET",
++      redirect: "manual",
++      signal: AbortSignal.timeout(20_000),
++    });
++    const type = probe.headers.get("content-type") ?? "";
++    if (probe.status === 200 && type.startsWith("image/png")) {
++      return {
++        ...base,
++        status: "ready",
++        url,
++        imageUrl,
++        expiresAt: new Date(exp * 1000).toISOString(),
++      };
++    }
++    if (
++      probe.status === 401 ||
++      probe.status === 403 ||
++      (probe.status >= 300 && probe.status < 400) ||
++      type.includes("text/html")
++    ) {
++      return { ...base, status: "protected", message: PROTECTED_MESSAGE };
++    }
++    if (probe.status === 404) {
++      throw new Error("The production project does not know this workflow or run.");
++    }
++    throw new Error(`The diagram request failed with status ${probe.status}.`);
++  }
++
+   async #waitForProductionHead(expectedHead: string): Promise<void> {
+     const deadline = this.#dependencies.now() + DEPLOYMENT_TIMEOUT_MS;
+     while (this.#dependencies.now() < deadline) {
+       const head = await this.#readProductionHead();
+       if (head === expectedHead) return;
+       await this.#dependencies.pause(POLL_INTERVAL_MS);
+     }
+     throw new Error(
+       "The production workflow did not reach this workspace commit in time. No run was started.",
+     );
+@@ -328,56 +436,72 @@ async function boundedText(response: Response): Promise<string> {
+ }
+ 
+ function parseJson(text: string): unknown {
+   try {
+     return JSON.parse(text);
+   } catch {
+     throw new Error("The workflow returned a non-JSON response.");
+   }
+ }
+ 
++function parseWorkflowPackage(text: string): unknown {
++  try {
++    return JSON.parse(text);
++  } catch {
++    throw new Error("The workspace's workflows/package.json is not valid JSON.");
++  }
++}
++
+ async function ensureWorkflowDependencies(
+   sandbox: Sandbox,
+   workspace: ConnectedWorkspaceConfiguration,
+ ): Promise<void> {
+   await runSandboxCommand(
+     sandbox,
+     workflowCommand(
+       workspace,
+       "test -x node_modules/.bin/tsx || npm ci --include=dev --ignore-scripts --no-audit --no-fund",
+     ),
+     "GTM workflow dependency installation",
+   );
+ }
+ 
+-async function readWorkflowInput(
++/** The one bounded reader for a file inside the connected workspace checkout. */
++async function readCheckoutFile(
+   sandbox: Sandbox,
+   workspace: ConnectedWorkspaceConfiguration,
+-  inputPath: string,
+-): Promise<unknown> {
+-  validateInputPath(inputPath);
++  relativePath: string,
++): Promise<string> {
+   const script = `
+ import { lstatSync, readFileSync } from "node:fs";
+ const path = process.argv[1];
+ const stat = lstatSync(path);
+ if (!stat.isFile() || stat.isSymbolicLink() || stat.size > ${MAX_INPUT_BYTES}) throw new Error("invalid input");
+ process.stdout.write(readFileSync(path).toString("base64"));
+ `;
+   const result = await runSandboxCommand(
+     sandbox,
+-    `set -euo pipefail\nrepo_dir="${workspace.checkoutDirectory}"\nfile="$repo_dir/${inputPath}"\nnode --input-type=module -e ${shellQuote(script)} "$file"`,
+-    "GTM workflow input read",
++    `set -euo pipefail\nrepo_dir="${workspace.checkoutDirectory}"\nfile="$repo_dir/${relativePath}"\nnode --input-type=module -e ${shellQuote(script)} "$file"`,
++    "GTM workflow file read",
+   );
++  return Buffer.from(result.stdout.replaceAll("\n", ""), "base64").toString("utf8");
++}
++
++async function readWorkflowInput(
++  sandbox: Sandbox,
++  workspace: ConnectedWorkspaceConfiguration,
++  inputPath: string,
++): Promise<unknown> {
++  validateInputPath(inputPath);
++  const contents = await readCheckoutFile(sandbox, workspace, inputPath);
+   try {
+-    return JSON.parse(
+-      Buffer.from(result.stdout.replaceAll("\n", ""), "base64").toString("utf8"),
+-    );
++    return JSON.parse(contents);
+   } catch {
+     throw new Error("The workflow input file is not valid bounded JSON.");
+   }
+ }
+ 
+ function validateRunInput(input: {
+   readonly checkpoint: number | null;
+   readonly expectedHead: string;
+   readonly inputPath: string;
+   readonly workflowPath: string;
+diff --git a/agent/tools/operate_gtm_workflow.ts b/agent/tools/operate_gtm_workflow.ts
+index 863a789..05125ea 100644
+--- a/agent/tools/operate_gtm_workflow.ts
++++ b/agent/tools/operate_gtm_workflow.ts
+@@ -72,20 +72,29 @@ const inputSchema = z.discriminatedUnion("action", [
+         .nonnegative()
+         .describe("Row count from the preview the user accepted; start refuses when the fresh dry run differs."),
+       expectedProjectedCostUsd: z
+         .number()
+         .nonnegative()
+         .describe("Projected cost in USD from the preview the user accepted; start refuses when the fresh dry run differs."),
+       summary: summary("Approve to run, or Cancel and tell me what to change."),
+     })
+     .strict(),
+   z.object({ action: z.literal("status"), runKey }).strict(),
++  z
++    .object({
++      action: z.literal("diagram"),
++      workflowPath,
++      runKey: runKey
++        .nullable()
++        .describe("Run key to overlay status and spend, or null for the workflow shape."),
++    })
++    .strict(),
+   z
+     .object({
+       action: z.literal("cancel"),
+       runKey,
+       reason: z.string().max(500).nullable(),
+       summary: summary("Approve to stop the run, or Cancel to leave it running."),
+     })
+     .strict(),
+   z
+     .object({
+@@ -129,21 +138,21 @@ const operationApproval: Approval<Input> = ({ toolInput }) => {
+     return {
+       type: "denied",
+       reason: `${problem} Correct the request and resubmit it for approval. Nothing was started, changed, or stopped.`,
+     };
+   }
+   return "user-approval";
+ };
+ 
+ export default defineTool({
+   description:
+-    "Check deployment, preview, start, inspect, approve, or cancel a workflow on the fixed protected Vercel production project. Deployment, preview, and status are read-only; deployment reports whether production serves the given workspace commit. Start repeats the dry run, refuses when its rows or projected cost differ from the accepted values, and waits for the exact connected-workspace Git SHA to be live. Start, approval, and cancel require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime.",
++    "Check deployment, preview, start, inspect, approve, or cancel a workflow on the fixed protected Vercel production project. Deployment, preview, and status are read-only; deployment reports whether production serves the given workspace commit. Start repeats the dry run, refuses when its rows or projected cost differ from the accepted values, and waits for the exact connected-workspace Git SHA to be live. Start, approval, and cancel require native approval. Production, OIDC, and hook tokens stay inside the trusted host runtime. Diagram is read-only: it returns a signed link to the workflow picture, the image link the channel uploads, and the where-to-look links; it reports protected when deployment protection blocks the link.",
+   inputSchema,
+   approval: operationApproval,
+   async execute(input, ctx) {
+     const configuration = getConfiguration();
+     if (configuration.workspace === null || configuration.workflowControl === null) {
+       return {
+         status: "setup_required" as const,
+         message:
+           "Trusted Vercel workflow control is not fully configured for this connected workspace.",
+       };
+@@ -158,20 +167,29 @@ export default defineTool({
+       return control.cancelRun({ reason: input.reason, runKey: input.runKey });
+     }
+     if (input.action === "approve") {
+       return control.approveRun({
+         approved: input.approved,
+         comment: input.comment,
+         runKey: input.runKey,
+       });
+     }
+ 
++    if (input.action === "diagram") {
++      return control.getDiagram({
++        workflowPath: input.workflowPath,
++        runKey: input.runKey,
++        databaseUrl: configuration.workflow?.databaseUrl ?? null,
++        sandbox: await ctx.getSandbox(),
++      });
++    }
++
+     const sandbox = await ctx.getSandbox();
+     const request = {
+       checkpoint: input.checkpoint,
+       expectedHead: input.expectedHead,
+       inputPath: input.inputPath,
+       sandbox,
+       workflowPath: input.workflowPath,
+     };
+     return input.action === "preview"
+       ? control.previewRun(request)
+diff --git a/tests/diagram-link.test.mjs b/tests/diagram-link.test.mjs
+new file mode 100644
+index 0000000..1a2886f
+--- /dev/null
++++ b/tests/diagram-link.test.mjs
+@@ -0,0 +1,46 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++
++import {
++  diagramLinks,
++  signDiagram,
++  tursoDashboardUrl,
++  vercelObservabilityUrl,
++  whereToLookText,
++} from "../agent/lib/diagram-link.ts";
++
++test("signs diagram claims like the workflows project", () => {
++  assert.equal(signDiagram({ path: "account-scoring", run: null, exp: 1800000000 }, "run-secret"), "blMhCFDtQH3hzIQsBNiSMpttas2dGVMJq5qtqtW8NAM");
++  assert.equal(
++    signDiagram({ path: "account-scoring", run: "0123456789abcdef0123456789abcdef", exp: 1800000000 }, "run-secret"),
++    "zyr8hay07tYU4meH4oDXDf-8dKFK8mIeNq4EZUFlcBw",
++  );
++});
++
++test("builds the page and image links with the same query", () => {
++  const links = diagramLinks({
++    productionUrl: "https://acme-workflows.vercel.app",
++    claims: { path: "nested/account-scoring", run: null, exp: 1800000000 },
++    secret: "run-secret",
++  });
++  assert.equal(links.url, `https://acme-workflows.vercel.app/gtm/diagram/nested/account-scoring?exp=1800000000&sig=${signDiagram({ path: "nested/account-scoring", run: null, exp: 1800000000 }, "run-secret")}`);
++  assert.equal(new URL(links.imageUrl).pathname, "/api/diagram-image/nested/account-scoring");
++  assert.equal(new URL(links.imageUrl).search, new URL(links.url).search);
++  const withRun = diagramLinks({ productionUrl: "https://acme-workflows.vercel.app", claims: { path: "a", run: "0123456789abcdef0123456789abcdef", exp: 1 }, secret: "s" });
++  assert.equal(new URL(withRun.url).searchParams.get("run"), "0123456789abcdef0123456789abcdef");
++});
++
++test("derives the runs and data links", () => {
++  assert.equal(vercelObservabilityUrl("stravik", "gtm-acme-workflows"), "https://vercel.com/stravik/gtm-acme-workflows/observability/workflows");
++  assert.equal(tursoDashboardUrl("libsql://gtm-acme-stravik.turso.io"), "https://app.turso.tech/stravik/databases/gtm-acme");
++  assert.equal(tursoDashboardUrl("https://gtm-acme-stravik.aws-eu-west-1.turso.io"), "https://app.turso.tech/stravik/databases/gtm-acme");
++  assert.equal(tursoDashboardUrl("libsql://weird.example.com"), "https://app.turso.tech");
++  assert.equal(tursoDashboardUrl(null), "https://app.turso.tech");
++});
++
++test("formats the where-to-look block", () => {
++  assert.equal(
++    whereToLookText({ diagram: "https://d/1", runs: "https://r/2", data: "https://t/3" }),
++    "Diagram: <https://d/1|Open the diagram>\nRuns (needs Vercel access): <https://r/2|Open the runs>\nData: <https://t/3|Open the data>",
++  );
++});
+diff --git a/tests/instructions.test.mjs b/tests/instructions.test.mjs
+index a76dff5..19eb341 100644
+--- a/tests/instructions.test.mjs
++++ b/tests/instructions.test.mjs
+@@ -84,20 +84,22 @@ test("standing instructions declare the sandbox workflow runtime and its limits"
+     /Saving this also puts it live in production\./,
+     /read-only deployment action/i,
+     /`Live\.` or `Not yet live\.`/,
+     /Approve to run, or Cancel and tell me what to change\./,
+     /Approve to continue the run, or Cancel to leave it paused and tell me what to do\./,
+     /Approve to stop the run here, or Cancel to leave it paused\./,
+     /Approve to stop the run, or Cancel to leave it running\./,
+     /applies accepted workflow migrations.*verifies their ledger hashes before/i,
+     /exact commit SHA/i,
+     /read-only run preview/i,
++    /read-only diagram action/,
++    /never paste the image link/i,
+     /hook token/i,
+     /expose no (?:sandbox )?port|no (?:sandbox )?port/i,
+     /npm run gtm -- query/,
+     /firewall|brokered/i,
+     /never (?:print|paste|echo)[\s\S]*(?:token|secret|key)/i,
+     /same session/i,
+   ]) {
+     assert.match(instructions, pattern);
+   }
+   assert.doesNotMatch(instructions, /starts production deployment/i);
+diff --git a/tests/slack-diagram-post.test.mjs b/tests/slack-diagram-post.test.mjs
+new file mode 100644
+index 0000000..5cba3ae
+--- /dev/null
++++ b/tests/slack-diagram-post.test.mjs
+@@ -0,0 +1,71 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++
++import { createDiagramResultHandler } from "../agent/lib/slack-diagram-post.ts";
++
++const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
++const READY = {
++  action: "diagram",
++  status: "ready",
++  workflowPath: "nested/account-scoring",
++  runKey: null,
++  url: "https://acme-workflows.vercel.app/gtm/diagram/nested/account-scoring?exp=1&sig=s",
++  imageUrl: "https://acme-workflows.vercel.app/api/diagram-image/nested/account-scoring?exp=1&sig=s",
++  expiresAt: "2027-01-15T08:00:00.000Z",
++  links: { diagram: "https://d/1", runs: "https://r/2", data: "https://t/3" },
++};
++
++function channelSpy() {
++  const posts = [];
++  return { posts, channel: { thread: { async post(input) { posts.push(input); return { id: "1", raw: {} }; } } } };
++}
++
++test("uploads the PNG with the where-to-look block for a ready diagram", async () => {
++  const fetched = [];
++  const handler = createDiagramResultHandler({
++    fetch: async (url, init) => {
++      fetched.push({ url: String(url), headers: init?.headers ?? {} });
++      return new Response(PNG, { status: 200, headers: { "content-type": "image/png" } });
++    },
++  });
++  const { posts, channel } = channelSpy();
++  await handler({ result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: READY } }, channel);
++  assert.equal(fetched.length, 1);
++  assert.equal(fetched[0].url, READY.imageUrl);
++  assert.equal(fetched[0].headers.authorization, undefined);
++  assert.equal(posts.length, 1);
++  assert.equal(posts[0].text, "Diagram: <https://d/1|Open the diagram>\nRuns (needs Vercel access): <https://r/2|Open the runs>\nData: <https://t/3|Open the data>");
++  assert.equal(posts[0].files.length, 1);
++  assert.equal(posts[0].files[0].filename, "account-scoring.png");
++  assert.deepEqual([...posts[0].files[0].data], [...PNG]);
++});
++
++test("posts the protected message without a file", async () => {
++  const handler = createDiagramResultHandler({ fetch: async () => { throw new Error("must not fetch"); } });
++  const { posts, channel } = channelSpy();
++  await handler({ result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: { ...READY, status: "protected", message: "The diagram link is blocked by deployment protection." } } }, channel);
++  assert.equal(posts.length, 1);
++  assert.equal(posts[0].text, "The diagram link is blocked by deployment protection.");
++  assert.equal(posts[0].files, undefined);
++});
++
++test("ignores other tools, other actions, failed downloads, and oversized images", async () => {
++  const { posts, channel } = channelSpy();
++  const handler = createDiagramResultHandler({ fetch: async () => new Response("nope", { status: 500 }) });
++  await handler({ result: { kind: "tool-result", toolName: "apply_gtm_workspace_changes", output: READY } }, channel);
++  await handler({ result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: { action: "status", status: "running" } } }, channel);
++  await handler({ result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: READY } }, channel);
++  const big = createDiagramResultHandler({
++    fetch: async () => new Response(new Uint8Array(5 * 1024 * 1024), { status: 200, headers: { "content-type": "image/png", "content-length": String(5 * 1024 * 1024) } }),
++  });
++  await big({ result: { kind: "tool-result", toolName: "operate_gtm_workflow", output: READY } }, channel);
++  // The other tool and the other action post nothing. A failed download and an
++  // oversized image each fall back to the block plus a plain explanation, and
++  // neither uploads a file.
++  assert.equal(posts.length, 2);
++  for (const post of posts) {
++    assert.match(post.text, /could not be downloaded/);
++    assert.match(post.text, /^Diagram: <https:\/\/d\/1\|Open the diagram>/);
++    assert.equal(post.files, undefined);
++  }
++});
+diff --git a/tests/workflow-control.test.mjs b/tests/workflow-control.test.mjs
+index 9f028f6..2fbe431 100644
+--- a/tests/workflow-control.test.mjs
++++ b/tests/workflow-control.test.mjs
+@@ -366,10 +366,110 @@ test("the deployment check is read-only and reports live only for the exact comm
+ });
+ 
+ test("a deployment that is not yet serving reports not live instead of failing", async () => {
+   const control = new WorkflowControl(
+     configuration,
+     workspace,
+     dependencies(async () => new Response("", { status: 503 })),
+   );
+   assert.equal((await control.getDeployment(HEAD)).status, "not_live");
+ });
++
++const PACKAGE_JSON = JSON.stringify({ gtm: { vercel: { team: "stravik", project: "gtm-acme-workflows" } } });
++
++function diagramSandbox() {
++  return sandboxWith((command) => {
++    if (command.includes("readFileSync(path).toString")) return ok(`${Buffer.from(PACKAGE_JSON).toString("base64")}\n`);
++    return ok();
++  });
++}
++
++function pngResponse(status = 200, type = "image/png") {
++  return new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), { status, headers: { "content-type": type } });
++}
++
++test("getDiagram mints a signed link, probes the image without credentials, and derives links", async () => {
++  const calls = [];
++  const fixedNow = 1800000000 * 1000 - 24 * 60 * 60 * 1000;
++  const controlAtFixedNow = new WorkflowControl(
++    { productionUrl: "https://acme-workflows.vercel.app", runSecret: "run-secret" },
++    workspace,
++    {
++      ...dependencies(async (url, init) => {
++        calls.push({ url: String(url), headers: init?.headers ?? {} });
++        return pngResponse();
++      }),
++      now: () => fixedNow,
++    },
++  );
++  const result = await controlAtFixedNow.getDiagram({
++    workflowPath: "account-scoring",
++    runKey: null,
++    databaseUrl: "libsql://gtm-acme-stravik.turso.io",
++    sandbox: diagramSandbox().sandbox,
++  });
++  assert.equal(result.status, "ready");
++  assert.equal(result.url, "https://acme-workflows.vercel.app/gtm/diagram/account-scoring?exp=1800000000&sig=blMhCFDtQH3hzIQsBNiSMpttas2dGVMJq5qtqtW8NAM");
++  assert.equal(result.imageUrl, "https://acme-workflows.vercel.app/api/diagram-image/account-scoring?exp=1800000000&sig=blMhCFDtQH3hzIQsBNiSMpttas2dGVMJq5qtqtW8NAM");
++  assert.equal(result.expiresAt, "2027-01-15T08:00:00.000Z");
++  assert.deepEqual(result.links, {
++    diagram: result.url,
++    runs: "https://vercel.com/stravik/gtm-acme-workflows/observability/workflows",
++    data: "https://app.turso.tech/stravik/databases/gtm-acme",
++  });
++  assert.equal(calls.length, 1);
++  assert.equal(calls[0].url, result.imageUrl);
++  assert.equal(calls[0].headers.authorization, undefined);
++  assert.equal(calls[0].headers["x-vercel-trusted-oidc-idp-token"], undefined);
++});
++
++test("getDiagram reports a protected deployment instead of a dead link", async () => {
++  const control = new WorkflowControl(
++    { productionUrl: "https://acme-workflows.vercel.app", runSecret: "run-secret" },
++    workspace,
++    dependencies(async () => new Response("<html>Vercel Authentication</html>", { status: 401, headers: { "content-type": "text/html" } })),
++  );
++  const result = await control.getDiagram({ workflowPath: "account-scoring", runKey: null, databaseUrl: null, sandbox: diagramSandbox().sandbox });
++  assert.equal(result.status, "protected");
++  assert.match(result.message, /deployment protection/i);
++  assert.equal(result.links.data, "https://app.turso.tech");
++});
++
++test("getDiagram uses the run's stored URL for the runs link and refuses a bad run key", async () => {
++  const runKey = "0123456789abcdef0123456789abcdef";
++  const control = new WorkflowControl(
++    { productionUrl: "https://acme-workflows.vercel.app", runSecret: "run-secret" },
++    workspace,
++    dependencies(async (url) => {
++      if (String(url).endsWith(`/api/runs/${runKey}`)) {
++        return Response.json({ run_key: runKey, workflow: "account-scoring", status: "running", run_url: "https://vercel.com/stravik/gtm-acme-workflows/observability/workflows/wrun_1" });
++      }
++      return pngResponse();
++    }),
++  );
++  const result = await control.getDiagram({ workflowPath: "account-scoring", runKey, databaseUrl: null, sandbox: diagramSandbox().sandbox });
++  assert.equal(result.status, "ready");
++  assert.equal(new URL(result.url).searchParams.get("run"), runKey);
++  assert.equal(result.links.runs, "https://vercel.com/stravik/gtm-acme-workflows/observability/workflows/wrun_1");
++  await assert.rejects(
++    control.getDiagram({ workflowPath: "account-scoring", runKey: "nope", databaseUrl: null, sandbox: diagramSandbox().sandbox }),
++    /run key is invalid/,
++  );
++});
++
++test("getDiagram names the workspace file when its package manifest is not JSON", async () => {
++  const control = new WorkflowControl(
++    { productionUrl: "https://acme-workflows.vercel.app", runSecret: "run-secret" },
++    workspace,
++    dependencies(async () => pngResponse()),
++  );
++  const { sandbox } = sandboxWith((command) => {
++    if (command.includes("readFileSync(path).toString")) {
++      return ok(`${Buffer.from("{ not json").toString("base64")}\n`);
++    }
++    return ok();
++  });
++  await assert.rejects(
++    control.getDiagram({ workflowPath: "account-scoring", runKey: null, databaseUrl: null, sandbox }),
++    /The workspace's workflows\/package\.json is not valid JSON\./,
++  );
++});
+diff --git a/tests/workflow-operation-approval.test.mjs b/tests/workflow-operation-approval.test.mjs
+index 6571888..754f01a 100644
+--- a/tests/workflow-operation-approval.test.mjs
++++ b/tests/workflow-operation-approval.test.mjs
+@@ -22,23 +22,37 @@ const START = {
+   checkpoint: null,
+   expectedRows: 120,
+   expectedProjectedCostUsd: 3,
+   summary: "For Acme:\nRun Score new leads on 120 rows for about $3.\nApprove to run, or Cancel and tell me what to change.",
+ };
+ 
+ test("read-only actions need no approval", async () => {
+   assert.equal(await approve({ ...START, action: "preview", summary: undefined }), "not-applicable");
+   assert.equal(await approve({ action: "status", runKey: RUN_KEY }), "not-applicable");
+   assert.equal(await approve({ action: "deployment", expectedHead: HEAD }), "not-applicable");
++  assert.equal(await approve({ action: "diagram", workflowPath: "score-leads", runKey: null }), "not-applicable");
++  assert.equal(approvalActionFor({ action: "diagram" }), null);
+   assert.equal(await approve(undefined), "not-applicable");
+ });
+ 
++test("the diagram action is a read-only member of the tool schema", () => {
++  assert.deepEqual(
++    operateTool.inputSchema.parse({ action: "diagram", workflowPath: "score-leads", runKey: null }),
++    { action: "diagram", workflowPath: "score-leads", runKey: null },
++  );
++  assert.deepEqual(
++    operateTool.inputSchema.parse({ action: "diagram", workflowPath: "nested/score-leads", runKey: RUN_KEY }),
++    { action: "diagram", workflowPath: "nested/score-leads", runKey: RUN_KEY },
++  );
++  assert.throws(() => operateTool.inputSchema.parse({ action: "diagram", workflowPath: "score-leads" }));
++});
++
+ test("each gated action maps to its closing line", () => {
+   assert.equal(approvalActionFor({ action: "start" }), "run-start");
+   assert.equal(approvalActionFor({ action: "cancel" }), "cancel-live-run");
+   assert.equal(approvalActionFor({ action: "approve", approved: true }), "checkpoint-continue");
+   assert.equal(approvalActionFor({ action: "approve", approved: false }), "stop-paused-run");
+   assert.equal(approvalActionFor({ action: "preview" }), null);
+   assert.equal(approvalActionFor(undefined), null);
+ });
+ 
+ test("a gated action with the right closing line asks a person", async () => {

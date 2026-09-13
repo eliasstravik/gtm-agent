@@ -28,11 +28,15 @@ export default defineSandbox({
   // Rebuild the template only when what bootstrap bakes in changes (skills and this file are tracked by eve).
   revalidationKey: () => `${repo}|${exports}`,
   async bootstrap({ use }) {
+    // Commit as the token's owner: a Git-connected Vercel project blocks pushes from authors who are not team members.
+    const who = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "gtm-agent" } });
+    if (!who.ok) throw new Error(`GitHub rejected GTM_GITHUB_TOKEN (HTTP ${who.status})`);
+    const { login, id } = (await who.json()) as { login: string; id: number };
     const result = await (await use()).run({
       command: [
         // The profile file is the one `bash -l` reads: .bash_profile, else .bash_login, else .profile.
         `p=$HOME/.bash_profile; [ -f $p ] || p=$HOME/.bash_login; [ -f $p ] || p=$HOME/.profile; printf '%s\\n' '${exports}' >> $p`,
-        `git config --global user.name "GTM Agent" && git config --global user.email gtm-agent@users.noreply.github.com && git config --global init.defaultBranch main`,
+        `git config --global user.name "${login}" && git config --global user.email "${id}+${login}@users.noreply.github.com" && git config --global init.defaultBranch main`,
         `git clone -q https://github.com/${repo}.git ${home}`,
         `if [ -f ${home}/workflows/package-lock.json ]; then (cd ${home}/workflows && ${npmCi}); fi`,
       ].join(" && "),

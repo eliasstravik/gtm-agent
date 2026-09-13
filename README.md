@@ -9,7 +9,7 @@ The skills come from gtm-skills at build time and are never committed; to move y
 ## Setup
 
 1. Create an empty private GitHub repository with no README, `.gitignore`, or license (or pick an existing GTM workspace repository). Its name, minus a leading `gtm-`, becomes the workspace slug, so use lowercase kebab-case, 1–40 characters. The agent never creates this repository.
-2. Create a fine-grained GitHub token scoped to that repository with contents read and write. Fine-grained tokens expire (one year at most); renewing means replacing `GTM_GITHUB_TOKEN` and redeploying, and the symptom of an expired one is a failed save in Slack.
+2. Create a fine-grained GitHub token scoped to that repository with contents read and write. The agent's commits are authored as that token's owner, which is what lets a Git-connected Vercel project build them. Fine-grained tokens expire (one year at most); renewing means replacing `GTM_GITHUB_TOKEN` and redeploying, and the symptom of an expired one is a failed save in Slack.
 3. Click Deploy. Vercel clones this template into your account, asks for `GTM_WORKSPACE_REPOSITORY` (`owner/<repo>`) and `GTM_GITHUB_TOKEN`, creates a Slack connector, installs it in your workspace, and points its events at the agent. The build prewarms the sandbox template, so a broken variable fails the deploy loudly.
 4. In the Vercel Connect dashboard, open the connector's Advanced settings and add the trigger events `message.channels`, `message.groups`, `message.im` and the bot scopes `channels:history`, `groups:history`, `im:history`, `files:read`; reinstall the app when Slack asks. Without this the bot answers mentions only.
 5. Invite the bot to the channels your GTM team uses; never a Slack Connect shared channel.
