@@ -26,6 +26,7 @@ Without the button: fork this repository, `vercel link`, `vercel connect create 
 | `GTM_WORKSPACE_REPOSITORY` | at deploy | `owner/<repo>`; the repository name fixes the workspace slug |
 | `GTM_GITHUB_TOKEN` | at deploy | fine-grained token, contents read and write on that repository only |
 | `GTM_AGENT_MODEL` | optional | an AI Gateway model id for the agent itself, `openai/gpt-5.6-luna-fast` when unset; read at build, so Redeploy after changing it |
+| `GTM_AGENT_REASONING` | optional | reasoning effort for that model, one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh`; the provider's default when unset; read at build |
 | `GTM_WORKFLOW_URL` | when the workflow project exists | its production URL, copied from the Vercel dashboard |
 | `GTM_RUN_SECRET` | when the workflow project exists | the value you chose and set on the workflow project |
 | `TURSO_STUDIO_URL`, `TURSO_STUDIO_TOKEN` | when the workflow project exists | read-only Turso pair; the `https://` form of the database URL |
