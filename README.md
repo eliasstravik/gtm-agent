@@ -1,45 +1,34 @@
-<p align="center"><img src="https://img.shields.io/badge/GTM%20Agent-Open%20source%20agent%20for%20GTM-2ea44f?style=flat-square&labelColor=24292f" alt="GTM Agent: open source agent for GTM" /></p>
+# gtm-agent
 
-<h3 align="center">Build and run GTM workflows from Slack</h3>
+A template for a Vercel Eve agent that connects one Slack workspace to one GTM workspace repository, so non-technical teammates can do everything the five [gtm-skills](https://github.com/eliasstravik/gtm-skills) skills do from Slack: keep the organization's GTM context, ICPs, and personas, qualify prospects, and build, run, and schedule saved workflows. Fit checks from Slack use public web evidence only; the agent exposes no paid data tools.
 
-<p align="center">GTM Agent connects one Slack workspace to one Git-backed GTM workspace and its hosted Vercel Workflow project.</p>
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&project-name=gtm-agent&repository-name=gtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D&env=GTM_WORKSPACE_REPOSITORY%2CGTM_GITHUB_TOKEN&envDescription=The+GTM+workspace+repository+%28owner%2Frepo%29+and+a+fine-grained+GitHub+token+with+contents+read+and+write+on+it.&envLink=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent%23setup)
 
-<p align="center"><img src="assets/gtm-agent-slack-hero.png" width="88%" alt="A teammate works with GTM Agent in Slack using shared organization and ICP information." /></p>
+The skills come from gtm-skills at build time and are never committed; to move your deployment to a new skills release, bump the tag in the `build` script of `package.json` and push.
 
-<p align="center"><a href="docs/getting-started.md"><img src="assets/buttons/deploy-gtm-agent.svg" alt="Deploy GTM Agent" /></a></p>
+## Setup
 
-## The flow
+1. Create an empty private GitHub repository with no README, `.gitignore`, or license (or pick an existing GTM workspace repository). Its name, minus a leading `gtm-`, becomes the workspace slug, so use lowercase kebab-case, 1–40 characters. The agent never creates this repository.
+2. Create a fine-grained GitHub token scoped to that repository with contents read and write. Fine-grained tokens expire (one year at most); renewing means replacing `GTM_GITHUB_TOKEN` and redeploying, and the symptom of an expired one is a failed save in Slack.
+3. Click Deploy. Vercel clones this template into your account, asks for `GTM_WORKSPACE_REPOSITORY` (`owner/<repo>`) and `GTM_GITHUB_TOKEN`, creates a Slack connector, installs it in your workspace, and points its events at the agent. The build prewarms the sandbox template, so a broken variable fails the deploy loudly.
+4. In the Vercel Connect dashboard, open the connector's Advanced settings and add the trigger events `message.channels`, `message.groups`, `message.im` and the bot scopes `channels:history`, `groups:history`, `im:history`, `files:read`; reinstall the app when Slack asks. Without this the bot answers mentions only.
+5. Invite the bot to the channels your GTM team uses; never a Slack Connect shared channel.
+6. When the first workflow is created from Slack, the agent asks for the workflow project: create a second Vercel project from the workspace repository with root directory `workflows/`, production branch `main`, Node 22; connect Turso from the marketplace; set `GTM_RUN_SECRET` (any long random string you choose), `CRON_SECRET` (same kind), `GTM_MODEL` (`openai/gpt-5.6-luna` unless you want another Gateway model), and `AI_GATEWAY_API_KEY`; turn off Deployment Protection for production; then Redeploy the latest deployment from the Vercel dashboard, because the first build ran before Turso existed.
+7. Put on the agent's Vercel project, all four together: `GTM_WORKFLOW_URL` (the workflow project's production URL, `https://<host>`, no trailing slash), `GTM_RUN_SECRET` (the same value), and a read-only Turso pair, `TURSO_STUDIO_URL` and `TURSO_STUDIO_TOKEN` (in Turso: the database, then tokens, create a read-only token; the URL is the database URL with `libsql://` replaced by `https://`); then Redeploy the agent's latest deployment from the Vercel dashboard, since there is no code change to push. Open threads pick this up on their next message.
 
-Ask for an organization workspace, ICP, persona, prospect qualification, or reusable workflow. The agent reads the matching installed skill, works in the connected repository, verifies the result, and shows one plain-language Slack card. **Approve** saves and pushes the change. Hosted work continues in the background and returns to the same thread with its picture and links.
+Without the button: fork this repository, `vercel link`, `vercel connect create slack --name gtm-agent --triggers`, then `vercel connect attach slack/gtm-agent --environment production --triggers --trigger-path /eve/v1/slack --yes`, remove the connector's default trigger destination in the Connect dashboard, and set the two variables on the project. To run the agent on your own machine: `vercel link`, `vercel env pull`, `npm run build` once (it installs the skills), then `npm run dev`.
 
-The five generated skills are:
+## Environment variables
 
-| Skill | Owns |
-| --- | --- |
-| `gtm-workspace` | Organization structure, members, and repository health |
-| `gtm-icp` | The companies an organization serves |
-| `gtm-persona` | Buyers and stakeholders |
-| `gtm-qualify-prospects` | Bounded, in-conversation fit checks |
-| `gtm-workflow` | Workflow code, tables, runs, diagrams, and costs |
+| Name | When | Meaning |
+| --- | --- | --- |
+| `SLACK_CONNECTOR` | set by the Deploy button | the Slack connector's UID |
+| `GTM_WORKSPACE_REPOSITORY` | at deploy | `owner/<repo>`; the repository name fixes the workspace slug |
+| `GTM_GITHUB_TOKEN` | at deploy | fine-grained token, contents read and write on that repository only |
+| `GTM_WORKFLOW_URL` | when the workflow project exists | its production URL, copied from the Vercel dashboard |
+| `GTM_RUN_SECRET` | when the workflow project exists | the value you chose and set on the workflow project |
+| `TURSO_STUDIO_URL`, `TURSO_STUDIO_TOKEN` | when the workflow project exists | read-only Turso pair; the `https://` form of the database URL |
 
-## Guarantees
+Secrets never enter the sandbox: the sandbox firewall adds them to requests to GitHub, the workflow project, and Turso. Model credentials: none; Eve's default model runs through the AI Gateway with the Vercel project's OIDC.
 
-- Only allowlisted people in allowlisted Slack channels can start or continue work.
-- Approval cards show the plain-language summary, never commands or JSON.
-- The command classifier asks by default; changed command text requires a new card.
-- The sandbox runs Node 22 with deny-by-default egress.
-- GitHub, workflow-run, and Turso credentials are inserted by the firewall and never enter the model's environment.
-- The sandbox edits and dry-runs workflows; production runs happen only on the connected Vercel project.
-- Long deployment and run waits use a durable background watcher, so they do not hold sandbox compute.
-
-## Small host, generated skills
-
-The authored agent is one Eve agent, one Slack channel, one sandbox, three small library modules, and two tools. `pnpm build` fetches the pinned GTM Skills release into the gitignored `agent/skills/` directory before Eve bundles it. There is no copied skill lockfile, proposal subagent, alternate workflow controller, agent-owned database, or web UI.
-
-Version 1 removes the former source editor, proposal and migration orchestration layers, duplicated diagram delivery stack, custom workflow-control tools, vendored skill snapshot, and their tests. The remaining agent surface is 379 nonblank lines.
-
-## Deploy
-
-Follow [Getting started](docs/getting-started.md). You need a Vercel account, Slack admin access, one GitHub workspace repository with an initial `main` commit, a Turso database, and a separate Git-connected workflow project.
-
-GTM Agent is free, open source, and [MIT licensed](LICENSE). Vercel, Slack, GitHub, Turso, model, and research-provider usage may have their own charges.
+MIT licensed.

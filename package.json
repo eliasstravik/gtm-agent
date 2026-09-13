@@ -1,36 +1,30 @@
 {
   "name": "gtm-agent",
-  "version": "1.0.3",
-  "private": false,
+  "version": "0.1.0",
   "type": "module",
   "imports": {
     "#*": "./agent/*",
     "#evals/*": "./evals/*"
   },
   "scripts": {
-    "fetch-skills": "node scripts/fetch-skills.mjs",
-    "build": "pnpm fetch-skills && eve build",
+    "build": "npx skills@1.5.26 add eliasstravik/gtm-skills#v0.1.0 --subagent root -y && eve build",
+    "deploy": "eve deploy",
     "dev": "eve dev",
-    "start": "eve start",
-    "typecheck": "tsc --noEmit",
     "eval": "eve eval",
-    "check": "pnpm fetch-skills && pnpm typecheck && pnpm test && eve build",
-    "test": "node --test tests/*.test.mjs"
+    "start": "eve start",
+    "typecheck": "tsc"
   },
   "dependencies": {
-    "@vercel/connect": "2.0.0",
-    "eve": "0.52.5",
-    "zod": "4.4.3"
+    "@vercel/connect": "1.0.0",
+    "ai": "^7.0.93",
+    "eve": "0.54.3",
+    "zod": "4.5.4"
   },
   "devDependencies": {
-    "@types/node": "24.13.3",
+    "@types/node": "24.x",
     "typescript": "7.0.2"
   },
   "engines": {
     "node": "24.x"
-  },
-  "packageManager": "pnpm@10.14.0",
-  "gtm": {
-    "skillsRelease": "v1.0.4"
   }
 }
