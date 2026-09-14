@@ -7,8 +7,8 @@ import { callSlackApi } from "eve/channels/slack";
  * The workflows' doorbell. A run on the workflow project posts here to reach a person, and the text goes straight to
  * Slack with this agent's bot token: no model runs, so a run can post as often as it likes. tell and show are plain
  * posts. ask and handoff post a message whose thread the Slack channel watches (see channels/slack.ts): a person's
- * reply there starts a turn, and the instructions say how to decide the approval or steer the run. Posts land
- * top-level in the run's channel, in a thread only when the run names one, else in GTM_NOTIFY_CHANNEL.
+ * reply there starts a turn, and the instructions say how to decide the approval or steer the run. Every post lands
+ * top-level in the run's channel, else in GTM_NOTIFY_CHANNEL; there is no thread option, whatever a caller sends.
  * Needs GTM_NOTIFY_SECRET (the same value the workflow project holds) and GTM_NOTIFY_CHANNEL on this project.
  */
 type Notification = {
@@ -17,7 +17,7 @@ type Notification = {
   kind: "tell" | "ask" | "show" | "handoff";
   text: string;
   approval?: { token: string };
-  target?: { channelId: string; threadTs?: string };
+  target?: { channelId: string };
 };
 
 const { botToken } = connectSlackCredentials(process.env.SLACK_CONNECTOR || "slack/gtm-agent");
@@ -47,7 +47,7 @@ export default defineChannel({
       const res = await callSlackApi({
         botToken,
         operation: "chat.postMessage",
-        body: { channel, text: renderNotification(n), ...(n.target?.threadTs && { thread_ts: n.target.threadTs }) },
+        body: { channel, text: renderNotification(n) },
       });
       // A refused post is the caller's to retry: the workflow's notify step retries twice, which covers a rate limit.
       if (!res.ok) return Response.json({ accepted: false, error: String(res.error) }, { status: 502 });
