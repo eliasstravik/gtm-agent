@@ -9,4 +9,5 @@ dist
 .DS_Store
 *.tsbuildinfo
 agent/skills/
+.agents/skills/
 skills-lock.json

@@ -42,6 +42,10 @@ Ask for an ICP, a persona, a team change, or a saved workflow in Slack. The agen
 
 Paste a company or a person and ask "is this a fit". The agent checks it against the saved ICPs and personas using public web evidence and replies with the verdict and its reasons.
 
+### Enrich connections and followers
+
+Ask "enrich my network". The agent asks for your source and enrichment services, then builds a workflow with people, their current companies, and links in both directions. It supports CSVs, existing tables, and retrieval services, with any compatible direct providers or aggregators. Up to five current experiences per person is the default; source retrieval and enrichment share one run budget.
+
 ### 💬 Let a running workflow ask the team
 
 When a hosted workflow needs a decision, it posts to the Slack channel you chose. A reply in that thread approves or steers the run without anyone opening a dashboard.
