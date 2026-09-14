@@ -1,11 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
+import { connectSlackCredentials } from "@vercel/connect/eve";
 import { defineChannel, POST } from "eve/channels";
-import slack from "./slack";
+import { callSlackApi } from "eve/channels/slack";
 
 /**
- * The workflows' doorbell. A run on the workflow project posts here to reach a person; the message becomes a turn in
- * Slack, in the run's own thread when it names one, else in GTM_NOTIFY_CHANNEL. The agent's instructions say what
- * to do with each kind: tell, ask (an approval to decide through the workflow's approve route), show, hand off.
+ * The workflows' doorbell. A run on the workflow project posts here to reach a person, and the text goes straight to
+ * Slack with this agent's bot token: no model runs, so a run can post as often as it likes. tell and show are plain
+ * posts. ask and handoff post a message whose thread the Slack channel watches (see channels/slack.ts): a person's
+ * reply there starts a turn, and the instructions say how to decide the approval or steer the run. Posts land
+ * top-level in the run's channel, in a thread only when the run names one, else in GTM_NOTIFY_CHANNEL.
  * Needs GTM_NOTIFY_SECRET (the same value the workflow project holds) and GTM_NOTIFY_CHANNEL on this project.
  */
 type Notification = {
@@ -17,32 +20,38 @@ type Notification = {
   target?: { channelId: string; threadTs?: string };
 };
 
+const { botToken } = connectSlackCredentials(process.env.SLACK_CONNECTOR || "slack/gtm-agent");
+
 function authorized(request: Request): boolean {
   const secret = process.env.GTM_NOTIFY_SECRET ?? "";
   const given = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
   return secret.length > 0 && given.length === secret.length && timingSafeEqual(Buffer.from(given), Buffer.from(secret));
 }
 
+/** The marker the instructions key on; only ask and handoff carry it, since only they expect a reply. */
+function renderNotification(n: Notification): string {
+  const slug = n.workflow.split("//").pop() ?? n.workflow;
+  if (n.kind === "tell" || n.kind === "show") return n.text;
+  const footer = n.kind === "ask" ? `Reply yes or no in this thread. Approval token: ${n.approval?.token ?? "none"}` : "Reply in this thread to steer this run.";
+  return [`[workflow ${n.kind}] ${slug}, run ${n.runId}`, n.text, footer].join("\n");
+}
+
 export default defineChannel({
   routes: [
-    POST("/gtm/notify", async (request, ctx) => {
+    POST("/gtm/notify", async (request) => {
       if (!authorized(request)) return new Response("Unauthorized", { status: 401 });
       const n = (await request.json().catch(() => null)) as Notification | null;
       if (!n?.runId || !n.kind || !n.text) return new Response("Body needs runId, kind, and text", { status: 400 });
-      const channelId = n.target?.channelId ?? process.env.GTM_NOTIFY_CHANNEL;
-      if (!channelId) return new Response("Set GTM_NOTIFY_CHANNEL on the agent project", { status: 503 });
-      const slug = n.workflow.split("//").pop() ?? n.workflow;
-      const lines = [
-        `[workflow ${n.kind}] ${slug}, run ${n.runId}`,
-        n.text,
-        n.approval ? `Approval token: ${n.approval.token}` : "",
-      ].filter(Boolean);
-      ctx.waitUntil(
-        ctx.to(slack, { channelId, ...(n.target?.threadTs && { threadTs: n.target.threadTs }) }).send(lines.join("\n"), {
-          auth: { authenticator: "gtm-workflow", principalType: "service", principalId: n.runId, attributes: { workflow: slug, kind: n.kind } },
-        }),
-      );
-      return Response.json({ accepted: true });
+      const channel = n.target?.channelId ?? process.env.GTM_NOTIFY_CHANNEL;
+      if (!channel) return new Response("Set GTM_NOTIFY_CHANNEL on the agent project", { status: 503 });
+      const res = await callSlackApi({
+        botToken,
+        operation: "chat.postMessage",
+        body: { channel, text: renderNotification(n), ...(n.target?.threadTs && { thread_ts: n.target.threadTs }) },
+      });
+      // A refused post is the caller's to retry: the workflow's notify step retries twice, which covers a rate limit.
+      if (!res.ok) return Response.json({ accepted: false, error: String(res.error) }, { status: 502 });
+      return Response.json({ accepted: true, ts: (res as { ts?: string }).ts ?? null });
     }),
   ],
 });
