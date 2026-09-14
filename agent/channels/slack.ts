@@ -1,5 +1,10 @@
 import { connectSlackCredentials } from "@vercel/connect/eve";
-import { defaultSlackAuth, loadThreadContextMessages, slackChannel, type SlackInboundMessageContext, type SlackMessage } from "eve/channels/slack";
+import { defaultSlackAuth, loadThreadContextMessages, slackChannel, type SlackEventContext, type SlackInboundMessageContext, type SlackMessage } from "eve/channels/slack";
+import { parseBlocksReply } from "../lib/blocks";
+
+// Slack's native markdown_text field caps at 12,000 characters; a longer reply goes up as a Markdown snippet, as eve does.
+const INLINE_REPLY_MAX = 12_000;
+const LONG_REPLY_NOTICE = "Here's a snippet with the full response.";
 
 // SLACK_CONNECTOR is provisioned by the "Deploy with Vercel" button; the fallback is the CLI-created connector's UID.
 // One message is one turn: app_mention in channels, message.im in DMs, unmentioned replies in a thread this agent owns,
@@ -16,7 +21,52 @@ export default slackChannel({
     if (!m.author || m.author.isBot || ctx.isBotMentioned()) return null;
     return (await ctx.isSubscribed()) || (await startedByThisAgent(ctx, m)) ? { auth: defaultSlackAuth(m, ctx) } : null;
   },
+  events: {
+    // The only eve default this agent replaces: the final reply. A reply that is one JSON object `{ text, blocks }`
+    // posts as Block Kit (buttons for Open diagram, Open runs, Open data; fields for results); anything else posts
+    // exactly as eve's default does. Questions, approvals, and sign-in keep eve's own rendering and handlers.
+    async "message.completed"(data, channel) {
+      if (data.finishReason === "tool-calls") {
+        channel.state.pendingToolCallMessage = data.message ? (firstNonEmptyLine(data.message) ?? null) : null;
+        return;
+      }
+      channel.state.pendingToolCallMessage = null;
+      if (!data.message) {
+        await channel.thread.startTyping();
+        return;
+      }
+      const rich = parseBlocksReply(data.message);
+      if (rich) {
+        // Slack refuses a bad block with invalid_blocks; the plain fallback then still says what the reply said.
+        try {
+          await channel.thread.post({ blocks: rich.blocks, text: rich.text });
+          return;
+        } catch (error) {
+          console.error("Block Kit reply refused, posting its text instead", error);
+          await postPlainReply(channel, rich.text);
+          return;
+        }
+      }
+      await postPlainReply(channel, data.message);
+    },
+  },
 });
+
+/** Eve's default delivery: inline as Markdown up to the limit, else a notice plus a Markdown snippet in the thread. */
+async function postPlainReply(channel: SlackEventContext, message: string): Promise<void> {
+  if (message.length <= INLINE_REPLY_MAX) {
+    await channel.thread.post(message);
+    return;
+  }
+  const inThread = channel.slack.threadTs.length > 0;
+  if (!inThread) await channel.thread.post(LONG_REPLY_NOTICE);
+  const file = { data: new Blob([message], { type: "text/markdown" }), filename: "eve-response.md", mimeType: "text/markdown" };
+  await channel.slack.uploadFiles([file], { initialComment: inThread ? LONG_REPLY_NOTICE : undefined, snippetType: "markdown" });
+}
+
+function firstNonEmptyLine(text: string): string | undefined {
+  return text.split(/\r?\n/u).map((l) => l.trim()).find((l) => l.length > 0);
+}
 
 /** Whether the message is a reply under a thread root this app posted; a failed thread fetch means no. */
 async function startedByThisAgent(ctx: SlackInboundMessageContext, m: SlackMessage): Promise<boolean> {

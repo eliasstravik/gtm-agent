@@ -30,7 +30,7 @@ Without the button: fork this repository, `vercel link`, `vercel connect create 
 | `GTM_WORKFLOW_URL` | when the workflow project exists | its production URL, copied from the Vercel dashboard |
 | `GTM_RUN_SECRET` | when the workflow project exists | the value you chose and set on the workflow project |
 | `TURSO_STUDIO_URL`, `TURSO_STUDIO_TOKEN` | when the workflow project exists | read-only Turso pair; the `https://` form of the database URL |
-| `GTM_NOTIFY_SECRET` | optional | a long random string, the same value set on the workflow project, so runs can reach people through `POST /gtm/notify`; the route posts straight to Slack with the bot token, no model call, and a reply under an ask or handoff post wakes the agent |
+| `GTM_NOTIFY_SECRET` | optional | a long random string, the same value set on the workflow project, so runs can reach people through `POST /gtm/notify`; the route posts straight to Slack with the bot token, no model call, takes optional Block Kit `blocks` next to the text, and a reply under an ask or handoff post wakes the agent |
 | `GTM_NOTIFY_CHANNEL` | optional | the Slack channel id where workflow notifications land when the workflow names no channel |
 
 Secrets never enter the sandbox: the sandbox firewall adds them to requests to GitHub, the workflow project, and Turso. Model credentials: none; Eve's default model runs through the AI Gateway with the Vercel project's OIDC.
