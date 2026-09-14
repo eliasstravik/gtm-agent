@@ -1,6 +1,6 @@
 <p align="center"><img src="https://img.shields.io/badge/GTM%20Agent-Open%20source%20GTM%20agent%20for%20Slack-2ea44f?style=flat-square&labelColor=24292f" alt="GTM Agent: open source GTM agent for Slack" /></p>
 
-<h3 align="center">Maintain your GTM workspace from Slack</h3>
+<h3 align="center">Build and run GTM workflows from Slack</h3>
 
 <p align="center">GTM Agent lets non-technical teammates keep the organization's GTM context, ICPs, and personas, qualify prospects, and build, run, and schedule saved workflows from Slack, by running the open source <a href="https://github.com/eliasstravik/gtm-skills">GTM Skills</a> as one Vercel Eve agent connected to one GTM workspace repository.</p>
 
