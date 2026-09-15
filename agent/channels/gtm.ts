@@ -63,8 +63,9 @@ export default defineChannel({
       const oidc = await verifyVercelOidc(extractBearerToken(request.headers.get("authorization")));
       if (!authorized(request) && !oidc.ok) return new Response("Unauthorized", { status: 401 });
       try {
+        const currentToken = connectSlackCredentials(process.env.SLACK_CONNECTOR || "slack/gtm-agent", {}, { forceRefresh: true }).botToken;
         const response = await fetch("https://slack.com/api/auth.test", {
-          method: "POST", headers: { authorization: `Bearer ${await resolveSlackBotToken(botToken)}` },
+          method: "POST", headers: { authorization: `Bearer ${await resolveSlackBotToken(currentToken)}` },
           signal: AbortSignal.timeout(15000),
         });
         const body = await response.json();
