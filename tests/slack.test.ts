@@ -1,11 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SlackOperations, slackIdentity, destination, boundedBytes, slackFileUrl, FILE_LIMIT } from "../agent/lib/slack-operations.ts";
+import { slackWriteInput } from "../agent/lib/slack-input.ts";
+import { z } from "zod";
+
 const identity = { channelId: "C123", threadTs: "1.001", userId: "U123", teamId: "T123" };
 const publicChannel = { ok: true, channel: { id: "C123", is_private: false, is_member: true } };
 
 test("here stays threaded, other channels and DMs start top-level, empty timestamp is explicit", () => {
   assert.deepEqual(destination({}, identity), { channelId: "C123", threadTs: "1.001" });
+  assert.deepEqual(destination({ channelId: null, threadTs: null, userId: null }, identity), { channelId: "C123", threadTs: "1.001" });
   assert.equal(destination({ channelId: "C456" }, identity).threadTs, "");
   assert.equal(destination({ userId: "U456" }, identity).threadTs, "");
   assert.equal(destination({ threadTs: "" }, identity).threadTs, "");
@@ -102,4 +106,13 @@ test("long response upload failure produces a bounded visible answer", async () 
   const channel = { thread: { post: async (text: string) => posts.push(text) }, slack: { threadTs: "1.001", uploadFiles: async () => { uploads++; throw new Error("failed"); } } };
   await postPlainReply(channel as any, "a".repeat(13000));
   assert.equal(uploads, 1); assert.equal(posts.length, 1); assert.match(posts[0], /couldn't attach/); assert.ok(posts[0].length <= 12000);
+});
+
+test("file and message input validation rejects conflicting destinations before approval", () => {
+  const fileInput = slackWriteInput.safeExtend({ path: z.string().min(1) });
+  assert.equal(fileInput.safeParse({ path: "/workspace/report.csv" }).success, true);
+  assert.equal(fileInput.safeParse({ path: "/workspace/report.csv", channelId: null, threadTs: null, userId: null }).success, true);
+  assert.equal(fileInput.safeParse({ path: "/workspace/report.csv", userId: "U123" }).success, true);
+  assert.equal(fileInput.safeParse({ path: "/workspace/report.csv", channelId: "C123", userId: "U123" }).success, false);
+  assert.equal(fileInput.safeParse({ path: "/workspace/report.csv", channelId: "wrong" }).success, false);
 });

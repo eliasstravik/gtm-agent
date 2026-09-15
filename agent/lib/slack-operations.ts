@@ -4,7 +4,7 @@ import { basename, posix } from "node:path";
 export const FILE_LIMIT = 25 * 1024 * 1024;
 export type SlackIdentity = { channelId: string; threadTs: string; userId: string; teamId: string };
 export type SlackCall = (method: string, body: Record<string, unknown>) => Promise<Record<string, any>>;
-export type Destination = { channelId?: string; threadTs?: string; userId?: string };
+export type Destination = { channelId?: string | null; threadTs?: string | null; userId?: string | null };
 export type FileSandbox = {
   readBinaryFile(input: { path: string }): PromiseLike<Uint8Array | null>;
   writeBinaryFile(input: { path: string; content: Uint8Array }): PromiseLike<void>;
@@ -88,7 +88,7 @@ export class SlackOperations {
     return info;
   }
 
-  async find(input: { query?: string; cursor?: string; limit?: number; types?: string }) {
+  async find(input: { query?: string | null; cursor?: string | null; limit?: number | null; types?: string | null }) {
     const page = await this.request("conversations.list", { types: input.types ?? "public_channel,private_channel,im,mpim", exclude_archived: true, limit: input.limit ?? 25, cursor: input.cursor ?? "" });
     const conversations = [];
     for (const c of page.channels ?? []) {
@@ -104,7 +104,7 @@ export class SlackOperations {
     return { conversations, nextCursor: page.response_metadata?.next_cursor || null };
   }
 
-  async history(input: { channelId?: string; threadTs?: string; cursor?: string; limit?: number }) {
+  async history(input: { channelId?: string | null; threadTs?: string | null; cursor?: string | null; limit?: number | null }) {
     const target = destination(input, this.identity);
     await this.conversation(target.channelId);
     const page = await this.request(target.threadTs ? "conversations.replies" : "conversations.history", { channel: target.channelId, ...(target.threadTs && { ts: target.threadTs }), limit: input.limit ?? 50, cursor: input.cursor ?? "" });
@@ -130,7 +130,7 @@ export class SlackOperations {
     return { sent: true, ...target, messageTs: result.ts };
   }
 
-  async upload(input: Destination & { path: string; filename?: string; comment?: string }, sandbox: FileSandbox) {
+  async upload(input: Destination & { path: string; filename?: string | null; comment?: string | null }, sandbox: FileSandbox) {
     const target = await this.target(input);
     const bytes = await sandbox.readBinaryFile({ path: input.path });
     if (!bytes?.byteLength) throw new Error("The file is missing or empty. Generate it in this session first.");
@@ -143,7 +143,7 @@ export class SlackOperations {
     return { sent: true, ...target, fileId: staged.file_id, filename };
   }
 
-  async download(input: { fileId: string; channelId?: string }, sandbox: FileSandbox, token: () => Promise<string>) {
+  async download(input: { fileId: string; channelId?: string | null }, sandbox: FileSandbox, token: () => Promise<string>) {
     const channelId = input.channelId ?? this.identity.channelId;
     await this.conversation(channelId);
     const { file } = await this.request("files.info", { file: input.fileId });
