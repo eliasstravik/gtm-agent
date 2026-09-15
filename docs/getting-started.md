@@ -23,7 +23,7 @@ Get gtm-agent running for Acme in Slack
 
 The agent creates a private copy of this repository, deploys it to your Vercel team, creates the Slack app, creates the private workspace repository `gtm-acme`, and connects a workflow project with a Turso database, in about five minutes. Two things are yours:
 
-1. The Slack install page it links: choose the workspace, add the listed events and scopes under Advanced, click Allow.
+1. The Slack install page it links: choose the workspace and click Allow. The setup skill synchronizes the selected configuration in Vercel and Slack, then verifies it.
 2. The first time your team uses Turso: accept the marketplace terms when the agent asks.
 
 When it says done, invite the app to your GTM channel and mention it:
@@ -67,7 +67,7 @@ Click the button to deploy from the Vercel dashboard, then follow the Slack and 
 
 1. Create an empty private GitHub repository (no README) named `gtm-<slug>` and a GitHub token with contents read and write on it.
 2. Click Deploy: Vercel clones this template, asks for `GTM_WORKSPACE_REPOSITORY` and `GTM_GITHUB_TOKEN`, and creates and installs the Slack connector.
-3. In the Vercel Connect dashboard, open the connector's Advanced settings and add the trigger events `message.channels`, `message.groups`, `message.im` and the bot scopes `channels:history`, `groups:history`, `im:history`, `files:read`; reinstall when Slack asks. Invite the bot to your channels; never a Slack Connect shared channel.
+3. Follow the [Slack configuration procedure](https://github.com/eliasstravik/gtm-skills/blob/main/skills/gtm-agent/references/slack.md) to apply the selected bot scopes, message events, and interactivity in both Vercel and Slack. Reinstall the app, then invite it to channels where it should receive messages.
 4. For workflows, follow "Connect the project, once" in the `gtm-workflow` skill's deploy reference, then set `GTM_WORKFLOW_URL` and `GTM_RUN_SECRET` on this project and Redeploy.
 
 Or from a terminal: fork this repository, `vercel link`, `vercel connect create slack --name gtm-agent --triggers`, `vercel connect attach slack/gtm-agent --environment production --triggers --trigger-path /eve/v1/slack --yes`, set the variables, push. To run the agent on your own machine: `vercel link`, `vercel env pull`, `npm run build` once (it installs the skills), then `npm run dev`.

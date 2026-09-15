@@ -1,7 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import { connectSlackCredentials } from "@vercel/connect/eve";
-import { defineChannel, POST } from "eve/channels";
-import { callSlackApi } from "eve/channels/slack";
+import { defineChannel, GET, POST } from "eve/channels";
+import { extractBearerToken, verifyVercelOidc } from "eve/channels/auth";
+import { callSlackApi, resolveSlackBotToken } from "eve/channels/slack";
 import { asBlocksMessage, markdownBlock, MAX_BLOCKS } from "../lib/blocks";
 
 /**
@@ -57,6 +58,19 @@ function renderBlocks(n: Notification): unknown[] | null {
 
 export default defineChannel({
   routes: [
+    // Operator-only live grant check. Returns no token, workspace messages, or private download URLs.
+    GET("/gtm/slack-health", async (request) => {
+      const oidc = await verifyVercelOidc(extractBearerToken(request.headers.get("authorization")));
+      if (!authorized(request) && !oidc.ok) return new Response("Unauthorized", { status: 401 });
+      try {
+        const response = await fetch("https://slack.com/api/auth.test", {
+          method: "POST", headers: { authorization: `Bearer ${await resolveSlackBotToken(botToken)}` },
+          signal: AbortSignal.timeout(15000),
+        });
+        const body = await response.json();
+        return Response.json({ ok: response.ok && body.ok === true, scopes: (response.headers.get("x-oauth-scopes") ?? "").split(",").filter(Boolean), ...(body.ok ? {} : { error: body.error }) }, { status: response.ok && body.ok ? 200 : 502 });
+      } catch { return Response.json({ ok: false, error: "slack_auth_check_failed" }, { status: 502 }); }
+    }),
     POST("/gtm/notify", async (request) => {
       if (!authorized(request)) return new Response("Unauthorized", { status: 401 });
       const n = (await request.json().catch(() => null)) as Notification | null;

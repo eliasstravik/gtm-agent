@@ -1,10 +1,8 @@
 import { connectSlackCredentials } from "@vercel/connect/eve";
-import { defaultSlackAuth, loadThreadContextMessages, slackChannel, type SlackEventContext, type SlackInboundMessageContext, type SlackMessage } from "eve/channels/slack";
+import { defaultSlackAuth, loadThreadContextMessages, slackChannel, type SlackInboundMessageContext, type SlackMessage } from "eve/channels/slack";
+import { postPlainReply } from "../lib/slack-delivery";
+import { isAddressedGroupDM } from "../lib/slack-routing";
 import { parseBlocksReply } from "../lib/blocks";
-
-// Slack's native markdown_text field caps at 12,000 characters; a longer reply goes up as a Markdown snippet, as eve does.
-const INLINE_REPLY_MAX = 12_000;
-const LONG_REPLY_NOTICE = "Here's a snippet with the full response.";
 
 // SLACK_CONNECTOR is provisioned by the "Deploy with Vercel" button; the fallback is the CLI-created connector's UID.
 // One message is one turn: app_mention in channels, message.im in DMs, unmentioned replies in a thread this agent owns,
@@ -18,7 +16,10 @@ export default slackChannel({
   onAppMention: (ctx, m) => (m.author && !m.author.isBot && !m.channelId.startsWith("D") ? { auth: defaultSlackAuth(m, ctx) } : null),
   onDirectMessage: (ctx, m) => (m.author && !m.author.isBot ? { auth: defaultSlackAuth(m, ctx) } : null),
   async onMessage(ctx, m) {
-    if (!m.author || m.author.isBot || ctx.isBotMentioned()) return null;
+    if (!m.author || m.author.isBot) return null;
+    // Group DMs arrive as message.mpim, not through Eve's one-to-one DM handler.
+    if (isAddressedGroupDM(m.raw, ctx.isBotMentioned())) return { auth: defaultSlackAuth(m, ctx) };
+    if (ctx.isBotMentioned()) return null;
     return (await ctx.isSubscribed()) || (await startedByThisAgent(ctx, m)) ? { auth: defaultSlackAuth(m, ctx) } : null;
   },
   events: {
@@ -51,18 +52,6 @@ export default slackChannel({
     },
   },
 });
-
-/** Eve's default delivery: inline as Markdown up to the limit, else a notice plus a Markdown snippet in the thread. */
-async function postPlainReply(channel: SlackEventContext, message: string): Promise<void> {
-  if (message.length <= INLINE_REPLY_MAX) {
-    await channel.thread.post(message);
-    return;
-  }
-  const inThread = channel.slack.threadTs.length > 0;
-  if (!inThread) await channel.thread.post(LONG_REPLY_NOTICE);
-  const file = { data: new Blob([message], { type: "text/markdown" }), filename: "eve-response.md", mimeType: "text/markdown" };
-  await channel.slack.uploadFiles([file], { initialComment: inThread ? LONG_REPLY_NOTICE : undefined, snippetType: "markdown" });
-}
 
 function firstNonEmptyLine(text: string): string | undefined {
   return text.split(/\r?\n/u).map((l) => l.trim()).find((l) => l.length > 0);
