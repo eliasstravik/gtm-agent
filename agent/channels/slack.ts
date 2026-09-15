@@ -1,6 +1,6 @@
 import { connectSlackCredentials } from "@vercel/connect/eve";
 import { defaultSlackAuth, loadThreadContextMessages, slackChannel, type SlackInboundMessageContext, type SlackMessage } from "eve/channels/slack";
-import { postPlainReply } from "../lib/slack-delivery";
+import { postPlainReply, postRichReply } from "../lib/slack-delivery";
 import { isAddressedGroupDM } from "../lib/slack-routing";
 import { parseBlocksReply } from "../lib/blocks";
 import { workflowEntryReply } from "../lib/workflow-entry";
@@ -38,17 +38,10 @@ export default slackChannel({
         return;
       }
       const parsed = parseBlocksReply(data.message);
-      const rich = parsed ? workflowEntryReply(parsed) : null;
+      const rich = parsed ? workflowEntryReply(parsed, process.env.GTM_WORKFLOW_URL) : null;
       if (rich) {
-        // Slack refuses a bad block with invalid_blocks; the plain fallback then still says what the reply said.
-        try {
-          await channel.thread.post({ blocks: rich.blocks, text: rich.text });
-          return;
-        } catch (error) {
-          console.error("Block Kit reply refused, posting its text instead", error);
-          await postPlainReply(channel, rich.text);
-          return;
-        }
+        await postRichReply(channel, rich);
+        return;
       }
       await postPlainReply(channel, data.message);
     },

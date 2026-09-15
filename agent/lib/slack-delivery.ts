@@ -1,6 +1,17 @@
 import type { SlackEventContext } from "eve/channels/slack";
+import type { BlocksMessage } from "./blocks";
 const INLINE_REPLY_MAX = 12_000;
 const LONG_REPLY_NOTICE = "Here's a snippet with the full response.";
+
+/** Keep the normalized accessible text, including action URLs, if Slack rejects rich blocks. */
+export async function postRichReply(channel: SlackEventContext, reply: BlocksMessage): Promise<void> {
+  try {
+    await channel.thread.post({ blocks: reply.blocks, text: reply.text });
+  } catch (error) {
+    console.error("Block Kit reply refused, posting its text instead", error);
+    await postPlainReply(channel, reply.text);
+  }
+}
 
 /** Eve's default delivery: inline as Markdown up to the limit, else a notice plus a Markdown snippet in the thread. */
 export async function postPlainReply(channel: SlackEventContext, message: string): Promise<void> {
