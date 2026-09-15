@@ -18,4 +18,3 @@ export async function postPlainReply(channel: SlackEventContext, message: string
     await channel.thread.post(`I couldn't attach the full response. Here's the beginning; ask me to continue.\n\n${message.slice(0, 11000)}`);
   }
 }
-
