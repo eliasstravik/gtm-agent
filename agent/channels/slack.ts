@@ -3,6 +3,7 @@ import { defaultSlackAuth, loadThreadContextMessages, slackChannel, type SlackIn
 import { postPlainReply } from "../lib/slack-delivery";
 import { isAddressedGroupDM } from "../lib/slack-routing";
 import { parseBlocksReply } from "../lib/blocks";
+import { workflowEntryReply } from "../lib/workflow-entry";
 
 // SLACK_CONNECTOR is provisioned by the "Deploy with Vercel" button; the fallback is the CLI-created connector's UID.
 // One message is one turn: app_mention in channels, message.im in DMs, unmentioned replies in a thread this agent owns,
@@ -24,7 +25,7 @@ export default slackChannel({
   },
   events: {
     // The only eve default this agent replaces: the final reply. A reply that is one JSON object `{ text, blocks }`
-    // posts as Block Kit (buttons for Open diagram, Open runs, Open data; fields for results); anything else posts
+    // posts as Block Kit (one primary Open GTM Workflows URL button; fields for results); anything else posts
     // exactly as eve's default does. Questions, approvals, and sign-in keep eve's own rendering and handlers.
     async "message.completed"(data, channel) {
       if (data.finishReason === "tool-calls") {
@@ -36,7 +37,8 @@ export default slackChannel({
         await channel.thread.startTyping();
         return;
       }
-      const rich = parseBlocksReply(data.message);
+      const parsed = parseBlocksReply(data.message);
+      const rich = parsed ? workflowEntryReply(parsed) : null;
       if (rich) {
         // Slack refuses a bad block with invalid_blocks; the plain fallback then still says what the reply said.
         try {

@@ -40,7 +40,7 @@ The agent asks what it needs through Slack's native question controls, fills the
 
 - The workspace repository on GitHub shows every change as one plain-language commit on `main`.
 - The agent's reply in the thread says what was created, changed, or deleted.
-- A workflow's diagram, runs, and data open from the buttons under a save.
+- A workflow's diagram, runs, and data open from the primary Open GTM Workflows button. Ask for it whenever you need the link.
 
 ## Environment variables
 
