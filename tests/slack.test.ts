@@ -105,7 +105,7 @@ test("long response upload failure produces a bounded visible answer", async () 
   const posts: string[] = []; let uploads = 0;
   const channel = { thread: { post: async (text: string) => posts.push(text) }, slack: { threadTs: "1.001", uploadFiles: async () => { uploads++; throw new Error("failed"); } } };
   await postPlainReply(channel as any, "a".repeat(13000));
-  assert.equal(uploads, 1); assert.equal(posts.length, 1); assert.match(posts[0], /couldn't attach/); assert.ok(posts[0].length <= 12000);
+  assert.equal(uploads, 1); assert.equal(posts.length, 1); assert.match(posts[0], /Could not attach/); assert.ok(posts[0].length <= 12000);
 });
 
 test("file and message input validation rejects conflicting destinations before approval", () => {

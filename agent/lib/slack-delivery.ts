@@ -1,7 +1,7 @@
 import type { SlackEventContext } from "eve/channels/slack";
 import type { BlocksMessage } from "./blocks";
 const INLINE_REPLY_MAX = 12_000;
-const LONG_REPLY_NOTICE = "Here's a snippet with the full response.";
+const LONG_REPLY_NOTICE = "Full response attached.";
 
 /** Keep the normalized accessible text, including action URLs, if Slack rejects rich blocks. */
 export async function postRichReply(channel: SlackEventContext, reply: BlocksMessage): Promise<void> {
@@ -26,6 +26,6 @@ export async function postPlainReply(channel: SlackEventContext, message: string
     await channel.slack.uploadFiles([file], { initialComment: inThread ? LONG_REPLY_NOTICE : undefined, snippetType: "markdown" });
   } catch {
     // Preserve a useful answer even when the file service refuses the upload.
-    await channel.thread.post(`I couldn't attach the full response. Here's the beginning; ask me to continue.\n\n${message.slice(0, 11000)}`);
+    await channel.thread.post(`Could not attach the full response. Showing the beginning; request the rest to continue.\n\n${message.slice(0, 11000)}`);
   }
 }
