@@ -1,6 +1,7 @@
 import { defineSandbox } from "eve/sandbox";
 import { vercel } from "eve/sandbox/vercel";
 import { allow, exports, home, repo, token } from "./lib/host";
+import { workspaceCheckout } from "./lib/workspace-checkout";
 
 const npmCi = "npm ci --no-audit --no-fund -q";
 
@@ -18,7 +19,7 @@ export default defineSandbox({
         // The profile file is the one `bash -l` reads: .bash_profile, else .bash_login, else .profile.
         `p=$HOME/.bash_profile; [ -f $p ] || p=$HOME/.bash_login; [ -f $p ] || p=$HOME/.profile; printf '%s\\n' '${exports}' >> $p`,
         `git config --global user.name "${login}" && git config --global user.email "${id}+${login}@users.noreply.github.com" && git config --global init.defaultBranch main`,
-        `git clone -q https://github.com/${repo}.git ${home}`,
+        workspaceCheckout(`https://github.com/${repo}.git`, home),
         `if [ -f ${home}/workflows/package-lock.json ]; then (cd ${home}/workflows && ${npmCi}); fi`,
       ].join(" && "),
     });
