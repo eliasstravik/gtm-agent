@@ -32,14 +32,8 @@ export function consumeConfirmation(state: ConfirmationState, id: string | null,
   return { pendingCallId: null, grants: {}, consumed: [...state.consumed, id!] };
 }
 
-/** Shell syntax and arbitrary programs cannot reliably be classified by destructive keywords. */
-export function isReadOnlyCommand(command: string): boolean {
-  if (/[;&|<>\n\r`$()\\]/u.test(command)) return false;
-  const words = command.trim().split(/\s+/u);
-  if (["pwd", "ls", "cat", "head", "tail", "wc"].includes(words[0])) return true;
-  return words[0] === "git" && words.length === 2 && ["status", "log", "diff"].includes(words[1]);
-}
-
+// Classify the operation's actual effects in the calling tool input. A shell allowlist
+// cannot distinguish a harmless script/read from data loss and blocked routine work.
 export function confirmationQuestion(input: Omit<Confirmation, "confirmationId" | "confirmed">, id: string) {
   return {
     prompt: `${input.action} ${input.target}? ${input.consequence}`,

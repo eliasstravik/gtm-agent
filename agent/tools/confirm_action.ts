@@ -3,7 +3,7 @@ import { z } from "zod";
 import { confirmationQuestion } from "../lib/confirmation";
 
 export default defineWorkflowTool({
-  description: "Confirm an exact operation before deleting, overwriting, resetting, removing, or running a shell command that may change resources. Name the action, target, and consequence in direct language. Always ask even when the original request names the destructive action. No or no response authorizes nothing. After Yes, pass confirmationId with the unchanged operation to bash or write_file.",
+  description: "Use ONLY for destructive actions: deleting resources or discarding existing data, including destructive overwrites and resets. Never ask for confirmation for reads, searches, routine edits, builds, tests, installs, requested runs, deployments or requested messages. Name the action, target, and consequence in direct language. Always ask even when the original request names the destructive action. No or no response authorizes nothing. After Yes, pass confirmationId with the unchanged operation to bash or write_file.",
   inputSchema: z.object({
     action: z.string().min(1), target: z.string().min(1), consequence: z.string().min(1),
     operation: z.discriminatedUnion("tool", [
