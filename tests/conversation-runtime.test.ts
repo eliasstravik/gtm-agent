@@ -66,6 +66,40 @@ test("No, plain text, and a stale Yes never create a grant; another session has 
 });
 
 const { appendPendingInputBatch, resolvePendingInput, hasPendingInputBatch } = await import(new URL("./harness/input-requests.js", import.meta.resolve("eve")).href);
+const { parseBlockActionsPayload } = await import(new URL("./public/channels/slack/interactions.js", import.meta.resolve("eve")).href);
+const { deriveHitlResponse } = await import(new URL("./public/channels/slack/hitl.js", import.meta.resolve("eve")).href);
+const { questionMessage } = await import("../agent/lib/slack-questions.ts");
+
+test("Slack choice-menu selections resume the original question through Eve's real callback parser", () => {
+  const request = { requestId: "source-request", kind: "question" as const, prompt: "Choose a source.", allowFreeform: true,
+    options: [{ id: "csv-source", label: "CSV", description: "Import supplied records." }, { id: "saved-source", label: "Saved table", description: "Reuse the existing records." }],
+    action: { kind: "tool-call" as const, callId: "source-call", toolName: "ask_question", input: {} } };
+  const message = questionMessage(request);
+  const select = (message.blocks![1] as any).elements[0];
+  for (const option of select.options) {
+    const parsed = parseBlockActionsPayload({ type: "block_actions", user: { id: "U-fixture" }, team: { id: "T-fixture" }, channel: { id: "C-fixture" },
+      message: { ts: "1.2", thread_ts: "1.1", blocks: message.blocks }, actions: [{ type: "static_select", action_id: select.action_id, selected_option: option }] });
+    const derived = deriveHitlResponse(parsed.actions[0]);
+    assert.deepEqual(derived.response, { requestId: request.requestId, optionId: option.value });
+    const session = appendPendingInputBatch({ session: { sessionId: "choice-session", history: [], state: {} }, requests: [request], responseMessages: [], event: { turnId: "turn", stepIndex: 0, sequence: 1 } });
+    const result = resolvePendingInput({ session, stepInput: { inputResponses: [derived.response] } });
+    assert.equal(result.outcome, "resolved");
+    assert.equal(hasPendingInputBatch(result.session.state), false);
+    assert.ok(JSON.stringify(result.messages).includes(option.value));
+  }
+});
+
+test("oversized choice IDs resolve intact from the numbered thread fallback", () => {
+  const request = { requestId: "large-option-request", kind: "question" as const, prompt: "Choose a source.", allowFreeform: false,
+    options: [{ id: "gateway", label: "Type your answer" }, { id: "c".repeat(151), label: "CSV", description: "Import supplied records." }],
+    action: { kind: "tool-call" as const, callId: "large-call", toolName: "ask_question", input: {} } };
+  assert.match(questionMessage(request).text, /2\. CSV/);
+  const session = appendPendingInputBatch({ session: { sessionId: "fallback-session", history: [], state: {} }, requests: [request], responseMessages: [], event: { turnId: "turn", stepIndex: 0, sequence: 1 } });
+  const result = resolvePendingInput({ session, stepInput: { message: "2" } });
+  assert.equal(result.outcome, "resolved");
+  assert.ok(JSON.stringify(result.messages).includes(request.options[1].id));
+});
+
 test("Eve resumes an open question from a normal thread reply or attachment without a modal", () => {
   const request = { requestId: "csv-request", kind: "question", prompt: "Upload the CSV of connections or followers.", allowFreeform: true,
     action: { kind: "tool-call", callId: "csv-call", toolName: "ask_question", input: {} } };
