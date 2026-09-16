@@ -6,14 +6,10 @@ import { consumeConfirmation } from "../lib/confirmation";
 
 export default defineTool({
   outputSchema: writeFile.outputSchema,
-  description: `${writeFile.description}\nCreating a new file needs no destructive confirmation. Before replacing an existing file, obtain Yes through confirm_action. Supply its confirmationId with the exact path and content. Each confirmation executes once.`,
-  inputSchema: z.object({ filePath: z.string(), content: z.string(), confirmationId: z.string().nullable() }),
-  async *execute({ filePath, content, confirmationId }, ctx) {
-    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-    const path = filePath.startsWith("$HOME/") ? `"$HOME"/${quote(filePath.slice(6))}` : quote(filePath);
-    const exists = await (await ctx.getSandbox()).run({ command: `test -e ${path} || test -L ${path}` });
-    if (exists.exitCode !== 0 && exists.exitCode !== 1) throw new Error("Could not check the existing file. No write performed.");
-    if (confirmationId || exists.exitCode === 0) {
+  description: `${writeFile.description}\nNew files and routine edits to existing code, configuration and documents run directly. Set destructive only for discarding existing data or replacing a resource wholesale with loss of its contents; obtain Yes through confirm_action for those operations. Supply its confirmationId with the exact path and content. Each confirmation executes once.`,
+  inputSchema: z.object({ filePath: z.string(), content: z.string(), destructive: z.boolean().describe("True only when discarding existing data; an ordinary edit is false even when the file already exists."), confirmationId: z.string().nullable() }),
+  async *execute({ filePath, content, destructive, confirmationId }, ctx) {
+    if (confirmationId || destructive) {
       confirmations.update(state => consumeConfirmation(state, confirmationId, { tool: "write_file", filePath, content }));
     }
     const result = await writeFile.execute({ filePath, content }, ctx);

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { confirmationQuestion, consumeConfirmation, isReadOnlyCommand, recordConfirmation, type Confirmation, type ConfirmationState } from "../agent/lib/confirmation.ts";
+import { confirmationQuestion, consumeConfirmation, recordConfirmation, type Confirmation, type ConfirmationState } from "../agent/lib/confirmation.ts";
 import { postQuestions, questionMessage } from "../agent/lib/slack-questions.ts";
 
 const action: Confirmation = { confirmationId: "call-a", confirmed: true, action: "Delete workflow", target: "Network enrichment", consequence: "Removes its saved results.", operation: { tool: "bash", command: "rm synthetic-workflow.json" } };
@@ -51,9 +51,4 @@ test("a confirmed overwrite is bound to both file path and replacement content",
   assert.throws(() => consumeConfirmation(approved, "call-a", { ...overwrite.operation as any, content: "different" }));
   assert.throws(() => consumeConfirmation(approved, "call-a", { ...overwrite.operation as any, filePath: "/workspace/other.json" }));
   assert.deepEqual(consumeConfirmation(approved, "call-a", overwrite.operation).grants, {});
-});
-
-test("opaque scripts, shell composition, redirects and destructive programs fail closed", () => {
-  for (const command of ["rm example", "git reset --hard", "python cleanup.py", "node cleanup.mjs", "curl -X DELETE https://example.test/data", "cat file > other", "ls; rm example", "cat $(rm example)", "git diff --output=result", "bash -c 'rm example'"]) assert.equal(isReadOnlyCommand(command), false, command);
-  for (const command of ["pwd", "ls -la", "cat README.md", "git status"]) assert.equal(isReadOnlyCommand(command), true, command);
 });

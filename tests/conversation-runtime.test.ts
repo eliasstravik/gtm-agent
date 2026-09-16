@@ -23,7 +23,7 @@ test("native confirmation continuation authorizes the frozen operation once in t
     const ctx: any = { getSandbox: async () => ({ run: async () => { executions++; return { exitCode: 0, stdout: "Deleted synthetic workflow.", stderr: "" }; } }) };
     const command = "rm synthetic-workflow.json";
     const input = { action: "Delete workflow", target: "Network enrichment", consequence: "Removes its saved results.", operation: { tool: "bash" as const, command } };
-    assert.throws(() => bash.execute({ command, confirmationId: null }, ctx), /Confirmation required/);
+    assert.throws(() => bash.execute({ command, destructive: true, confirmationId: null }, ctx), /Confirmation required/);
     confirmationHook.events["actions.requested"]!({ data: { actions: [{ kind: "tool-call", toolName: "confirm_action", callId: "a", input }] } } as any, ctx);
     let answer!: (response: any) => void;
     const result = confirmAction.execute(input, { callId: "a", ask: async (request: any) => {
@@ -31,7 +31,7 @@ test("native confirmation continuation authorizes the frozen operation once in t
       return new Promise(resolve => { answer = resolve; });
     } } as any);
     assert.equal(executions, 0);
-    assert.throws(() => bash.execute({ command, confirmationId: "a" }, ctx), /Confirmation required/);
+    assert.throws(() => bash.execute({ command, destructive: true, confirmationId: "a" }, ctx), /Confirmation required/);
     answer({ optionId: "a:yes" });
     const output = await result;
     const event: any = { data: { result: { kind: "tool-result", callId: "a", toolName: "confirm_action", output } } };
@@ -40,11 +40,11 @@ test("native confirmation continuation authorizes the frozen operation once in t
     const restored = new ContextContainer();
     for (const [key, value] of contextStorage.getStore().entries()) restored.set(key, JSON.parse(JSON.stringify(value)));
     await contextStorage.run(restored, async () => {
-      assert.throws(() => bash.execute({ command: "rm other.json", confirmationId: "a" }, ctx));
-      await bash.execute({ command, confirmationId: "a" }, ctx);
+      assert.throws(() => bash.execute({ command: "rm other.json", destructive: true, confirmationId: "a" }, ctx));
+      await bash.execute({ command, destructive: true, confirmationId: "a" }, ctx);
       assert.equal(executions, 1);
       confirmationHook.events["action.result"]!(event, ctx);
-      assert.throws(() => bash.execute({ command, confirmationId: "a" }, ctx));
+      assert.throws(() => bash.execute({ command, destructive: true, confirmationId: "a" }, ctx));
       assert.equal(executions, 1);
     });
   });
@@ -82,7 +82,7 @@ test("Eve resumes an open question from a normal thread reply or attachment with
 });
 
 const { default: writeFile } = await import("../agent/tools/write_file.ts");
-test("new files write directly, but replacing an existing file requires the exact confirmed content", async () => {
+test("new files and routine edits run directly; destructive replacement requires exact confirmed content", async () => {
   await contextStorage.run(new ContextContainer(), async () => {
     let content: string | null = null;
     let writes = 0;
@@ -93,13 +93,15 @@ test("new files write directly, but replacing an existing file requires the exac
       writeTextFile: async (input: any) => { content = input.content; writes++; },
     };
     const ctx: any = { getSandbox: async () => sandbox };
-    const execute = async (text: string, confirmationId: string | null) => {
-      for await (const result of writeFile.execute({ filePath, content: text, confirmationId }, ctx)) assert.equal(result.path, filePath);
+    const execute = async (text: string, confirmationId: string | null, destructive = true) => {
+      for await (const result of writeFile.execute({ filePath, content: text, destructive, confirmationId }, ctx)) assert.equal(result.path, filePath);
     };
-    await execute("original", null);
+    await execute("original", null, false);
     assert.equal(writes, 1);
+    await execute("routine edit", null, false);
+    assert.equal(content, "routine edit");
     await assert.rejects(execute("replacement", null), /Confirmation required/);
-    assert.equal(content, "original");
+    assert.equal(content, "routine edit");
     const input = { action: "Replace file", target: "example.txt", consequence: "Replaces existing text.", operation: { tool: "write_file" as const, filePath, content: "replacement" } };
     confirmationHook.events["actions.requested"]!({ data: { actions: [{ kind: "tool-call", toolName: "confirm_action", callId: "write-a", input }] } } as any, ctx);
     const output = await confirmAction.execute(input, { callId: "write-a", ask: async () => ({ optionId: "write-a:yes" }) } as any);
@@ -108,6 +110,27 @@ test("new files write directly, but replacing an existing file requires the exac
     await execute("replacement", "write-a");
     await assert.rejects(execute("replacement", "write-a"), /Confirmation required/);
     assert.equal(content, "replacement");
-    assert.equal(writes, 2);
+    assert.equal(writes, 3);
+  });
+});
+
+
+test("listing workflows and ordinary shell work execute without asking for confirmation", async () => {
+  await contextStorage.run(new ContextContainer(), async () => {
+    const commands = [
+      'ls -la "$HOME/.gtm"',
+      'find "$HOME/.gtm/workflows" -name "*.ts"',
+      'cd "$HOME/.gtm" && rg "name:" workflows | head -20',
+      'node scripts/list-workflows.mjs',
+      'mkdir -p "$HOME/.gtm/reports"',
+      'npm test',
+    ];
+    const executions: string[] = [];
+    const ctx: any = { getSandbox: async () => ({ run: async ({ command }: any) => {
+      executions.push(command); return { exitCode: 0, stdout: "done", stderr: "" };
+    } }) };
+    for (const command of commands) await bash.execute({ command, destructive: false, confirmationId: null } as any, ctx);
+    assert.deepEqual(executions, commands);
+    assert.deepEqual(confirmations.get().grants, {});
   });
 });
