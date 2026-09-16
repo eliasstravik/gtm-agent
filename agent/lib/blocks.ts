@@ -1,7 +1,7 @@
 /**
  * Block Kit for the two places this agent writes to Slack by hand: the model's final reply (channels/slack.ts) and the
- * workflows' notify route (channels/gtm.ts). Eve's own surfaces (questions, approvals, sign-in) render their own blocks
- * and are not touched. A reply is plain text unless the model answers with one JSON object `{ text, blocks }`; the
+ * workflows' notify route (channels/gtm.ts). Questions use slack-questions.ts; sign-in retains Eve's rendering.
+ * A reply is plain text unless the model answers with one JSON object `{ text, blocks }`; the
  * `text` is Slack's plain fallback (notifications, accessibility, thread context), the `blocks` are Block Kit as is.
  */
 export type BlocksMessage = { text: string; blocks: unknown[] };

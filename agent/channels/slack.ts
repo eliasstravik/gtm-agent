@@ -4,6 +4,7 @@ import { postPlainReply, postRichReply } from "../lib/slack-delivery";
 import { isAddressedGroupDM } from "../lib/slack-routing";
 import { parseBlocksReply } from "../lib/blocks";
 import { workflowEntryReply } from "../lib/workflow-entry";
+import { postQuestions } from "../lib/slack-questions";
 
 // SLACK_CONNECTOR is provisioned by the "Deploy with Vercel" button; the fallback is the CLI-created connector's UID.
 // One message is one turn: app_mention in channels, message.im in DMs, unmentioned replies in a thread this agent owns,
@@ -24,9 +25,24 @@ export default slackChannel({
     return (await ctx.isSubscribed()) || (await startedByThisAgent(ctx, m)) ? { auth: defaultSlackAuth(m, ctx) } : null;
   },
   events: {
-    // The only eve default this agent replaces: the final reply. A reply that is one JSON object `{ text, blocks }`
-    // posts as Block Kit (one primary Open GTM Workflows URL button; fields for results); anything else posts
-    // exactly as eve's default does. Questions, approvals, and sign-in keep eve's own rendering and handlers.
+    "input.requested": postQuestions,
+    // Reasoning and tool arguments may contain quoted user data. Keep progress wording fixed.
+    async "reasoning.appended"() {},
+    async "actions.requested"(_data, channel) {
+      channel.state.pendingToolCallMessage = null;
+      await channel.thread.startTyping("Working...");
+    },
+    async "turn.failed"(_data, channel) {
+      await channel.thread.post("The request failed. Try again or rephrase the request.");
+    },
+    async "session.failed"(_data, channel) {
+      await channel.thread.post("The conversation could not recover. Start a new thread to continue.");
+    },
+    async "approval.candidate"(data, channel) {
+      const userId = channel.state.pendingApprovalCandidateUsers?.[data.candidateId];
+      if (userId && data.outcome === "pending") await channel.thread.postEphemeral(userId, "Checking approval access...");
+      if (userId && (data.outcome === "rejected" || data.outcome === "failed")) await channel.thread.postEphemeral(userId, "Approval access could not be verified. Try again.");
+    },
     async "message.completed"(data, channel) {
       if (data.finishReason === "tool-calls") {
         channel.state.pendingToolCallMessage = data.message ? (firstNonEmptyLine(data.message) ?? null) : null;
