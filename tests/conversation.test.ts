@@ -18,10 +18,61 @@ test("CSV requests and accidental gateway options render without an action butto
 });
 
 test("real source/provider choices retain Eve's ID-addressed interaction contract", () => {
-  const result = questionMessage(question([{ id: "csv", label: "CSV" }, { id: "answer", label: "Type your answer" }, { id: "table", label: "Existing table" }]));
+  const result = questionMessage(question([{ id: "csv", label: "CSV", description: "Import the uploaded file." }, { id: "answer", label: "Type your answer" }, { id: "table", label: "Existing table", description: "Reuse saved records." }]));
   const actions = result.blocks[1] as any;
-  assert.deepEqual(actions.elements.map((button: any) => [button.action_id, button.value]), [["eve_input:request-1:button:0", "csv"], ["eve_input:request-1:button:1", "table"]]);
+  assert.equal(actions.elements.length, 1);
+  const select = actions.elements[0];
+  assert.equal(select.type, "static_select");
+  assert.equal(select.action_id, "eve_input:request-1");
+  assert.deepEqual(select.options.map((option: any) => [option.value, option.text.text, option.description.text]), [["csv", "CSV", "Import the uploaded file."], ["table", "Existing table", "Reuse saved records."]]);
   assert.equal(JSON.stringify(result).includes("eve_input_freeform"), false);
+});
+
+test("question choices use a menu at every supported option count and stay within Slack text limits", () => {
+  for (const count of [1, 2, 5, 6, 100]) {
+    const options = Array.from({ length: count }, (_, index) => ({ id: `option-${index}`, label: "🙂".repeat(80), description: "Details ".repeat(30) }));
+    const result = questionMessage(question(options));
+    const select = (result.blocks[1] as any).elements[0];
+    assert.equal(select.type, "static_select");
+    assert.equal(select.options.length, count);
+    assert.equal(select.initial_option, undefined, "never submit or preselect an answer");
+    for (const [index, option] of select.options.entries()) {
+      assert.equal(option.value, options[index].id, "preserve the answer identifier");
+      assert.ok(option.text.text.length <= 75);
+      assert.ok(option.description.text.length <= 75);
+      assert.equal(option.text.text.isWellFormed(), true);
+    }
+  }
+});
+
+test("short option text stays intact and empty descriptions are omitted", () => {
+  const result = questionMessage(question([{ id: "a", label: "A", description: " " }, { id: "b", label: "B", description: "b".repeat(75) }]));
+  const options = (result.blocks[1] as any).elements[0].options;
+  assert.deepEqual(options[0], { text: { type: "plain_text", text: "A" }, value: "a" });
+  assert.equal(options[1].description.text, "b".repeat(75));
+});
+
+test("oversized choice metadata stays answerable without invalid Slack controls", async () => {
+  const options = [{ id: "gateway", label: "Type your answer" }, { id: "x".repeat(151), label: "CSV", description: "Import the file." }];
+  for (const request of [question(options), { ...question([{ id: "csv", label: "CSV" }]), requestId: "r".repeat(256) }, question(Array.from({ length: 101 }, (_, index) => ({ id: `id-${index}`, label: `Choice ${index}` })))]) {
+    const posts: any[] = [];
+    await postQuestions({ requests: [request], sequence: 1, stepIndex: 1, turnId: "turn-1" }, { thread: { post: async (message: any) => { posts.push(message); return { id: "1" }; } }, state: {} } as any);
+    assert.ok(posts.every(message => !message.blocks && message.text.length <= 40000));
+    assert.match(posts[0].text, /Reply in this thread with the option number/);
+  }
+  assert.match(questionMessage(question(options)).text, /2\. CSV: Import the file/);
+});
+
+test("native tool approvals retain their confirmation buttons and pending-card state", async () => {
+  const request = { ...question([{ id: "approve", label: "Approve" }, { id: "cancel", label: "Cancel" }]), kind: "tool-approval" as const, allowFreeform: false };
+  const state: any = {};
+  const posts: any[] = [];
+  await postQuestions({ requests: [request], sequence: 1, stepIndex: 1, turnId: "turn-1" }, { thread: { post: async (message: any) => { posts.push(message); return { id: "message-1" }; } }, state } as any);
+  assert.deepEqual(posts[0].blocks[1].elements.map((button: any) => [button.type, button.action_id, button.value]), [
+    ["button", "eve_input:tool-approval:request-1:button:0", "approve"],
+    ["button", "eve_input:tool-approval:request-1:button:1", "cancel"],
+  ]);
+  assert.equal(state.pendingApprovalCards[request.requestId].messageTs, "message-1");
 });
 
 test("confirmation has exactly Yes/No, action-specific IDs and a concrete consequence", () => {
