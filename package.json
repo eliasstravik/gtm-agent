@@ -1,13 +1,13 @@
 {
   "name": "gtm-agent",
-  "version": "0.1.61",
+  "version": "0.1.62",
   "type": "module",
   "imports": {
     "#*": "./agent/*",
     "#evals/*": "./evals/*"
   },
   "scripts": {
-    "build": "npx skills@1.5.26 add eliasstravik/gtm-skills#f677bd0572f46e85f18477d1782eb45216658d66 --subagent root -y && eve build",
+    "build": "npx skills@1.5.26 add eliasstravik/gtm-skills#39de2bf1e59d07f5d8d6f57e91ac1349a2a7f689 --subagent root -y && eve build",
     "deploy": "eve deploy",
     "dev": "eve dev",
     "eval": "eve eval",
