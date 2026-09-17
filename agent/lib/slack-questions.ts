@@ -31,14 +31,13 @@ export function questionMessage(request: Request) {
   const prefix = `eve_input:${request.kind === "tool-approval" ? "tool-approval:" : ""}${request.requestId}`;
   // IDs belong to Eve's pending request: never truncate them into a different answer.
   // Oversized legacy requests remain answerable by ordinary thread replies.
-  if (request.kind === "question" && (options.length > 100 || prefix.length > 255 || options.some(option => !option.id || option.id.length > 150))) {
+  if (options.length > 10 || (request.kind === "question" && (prefix.length > 255 || options.some(option => !option.id || option.id.length > 150)))) {
     const choices = options.map(option => `${request.options!.indexOf(option) + 1}. ${optionText(option.label)}${option.description?.trim() ? `: ${optionText(option.description)}` : ""}`);
     return { text: [request.prompt, ...choices, "Reply in this thread with the option number."].join("\n") };
   }
   const blocks: unknown[] = [{ type: "section", text: { type: "mrkdwn", text: request.prompt } }];
   if (options.length && (request.kind === "question" || options.length > 5)) {
-    blocks.push({ type: "actions", elements: [{ type: "static_select", action_id: prefix,
-      placeholder: { type: "plain_text", text: "Choose an option" },
+    blocks.push({ type: "actions", elements: [{ type: "radio_buttons", action_id: prefix,
       options: options.map((option, index) => ({
         text: { type: "plain_text", text: optionText(option.label) || `Option ${index + 1}` }, value: option.id,
         ...(option.description?.trim() ? { description: { type: "plain_text", text: optionText(option.description) } } : {}),

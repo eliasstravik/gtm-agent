@@ -69,23 +69,32 @@ const { appendPendingInputBatch, resolvePendingInput, hasPendingInputBatch } = a
 const { parseBlockActionsPayload } = await import(new URL("./public/channels/slack/interactions.js", import.meta.resolve("eve")).href);
 const { deriveHitlResponse } = await import(new URL("./public/channels/slack/hitl.js", import.meta.resolve("eve")).href);
 const { questionMessage } = await import("../agent/lib/slack-questions.ts");
+const { confirmationQuestion } = await import("../agent/lib/confirmation.ts");
 
-test("Slack choice-menu selections resume the original question through Eve's real callback parser", () => {
-  const request = { requestId: "source-request", kind: "question" as const, prompt: "Choose a source.", allowFreeform: true,
+test("Slack radio selections resume the original question through Eve's real callback parser", () => {
+  const sourceRequest = { requestId: "source-request", kind: "question" as const, prompt: "Choose a source.", allowFreeform: true,
     options: [{ id: "csv-source", label: "CSV", description: "Import supplied records." }, { id: "saved-source", label: "Saved table", description: "Reuse the existing records." }],
     action: { kind: "tool-call" as const, callId: "source-call", toolName: "ask_question", input: {} } };
-  const message = questionMessage(request);
-  const select = (message.blocks![1] as any).elements[0];
-  for (const option of select.options) {
-    const parsed = parseBlockActionsPayload({ type: "block_actions", user: { id: "U-fixture" }, team: { id: "T-fixture" }, channel: { id: "C-fixture" },
-      message: { ts: "1.2", thread_ts: "1.1", blocks: message.blocks }, actions: [{ type: "static_select", action_id: select.action_id, selected_option: option }] });
-    const derived = deriveHitlResponse(parsed.actions[0]);
-    assert.deepEqual(derived.response, { requestId: request.requestId, optionId: option.value });
-    const session = appendPendingInputBatch({ session: { sessionId: "choice-session", history: [], state: {} }, requests: [request], responseMessages: [], event: { turnId: "turn", stepIndex: 0, sequence: 1 } });
-    const result = resolvePendingInput({ session, stepInput: { inputResponses: [derived.response] } });
-    assert.equal(result.outcome, "resolved");
-    assert.equal(hasPendingInputBatch(result.session.state), false);
-    assert.ok(JSON.stringify(result.messages).includes(option.value));
+  const confirmation = { ...sourceRequest, requestId: "delete-request", ...confirmationQuestion({
+    action: "Remove", target: "synthetic data", consequence: "Removes its saved records.",
+    operation: { tool: "bash", command: "rm synthetic-workflow.json" },
+  }, "delete-call") };
+  for (const request of [sourceRequest, confirmation]) {
+    const message = questionMessage(request);
+    const select = (message.blocks![1] as any).elements[0];
+    assert.equal(select.type, "radio_buttons");
+    assert.equal(select.initial_option, undefined);
+    for (const option of select.options) {
+      const parsed = parseBlockActionsPayload({ type: "block_actions", user: { id: "U-fixture" }, team: { id: "T-fixture" }, channel: { id: "C-fixture" },
+        message: { ts: "1.2", thread_ts: "1.1", blocks: message.blocks }, actions: [{ type: "radio_buttons", action_id: select.action_id, selected_option: option }] });
+      const derived = deriveHitlResponse(parsed.actions[0]);
+      assert.deepEqual(derived.response, { requestId: request.requestId, optionId: option.value });
+      const session = appendPendingInputBatch({ session: { sessionId: "choice-session", history: [], state: {} }, requests: [request], responseMessages: [], event: { turnId: "turn", stepIndex: 0, sequence: 1 } });
+      const result = resolvePendingInput({ session, stepInput: { inputResponses: [derived.response] } });
+      assert.equal(result.outcome, "resolved");
+      assert.equal(hasPendingInputBatch(result.session.state), false);
+      assert.ok(JSON.stringify(result.messages).includes(option.value));
+    }
   }
 });
 

@@ -22,18 +22,18 @@ test("real source/provider choices retain Eve's ID-addressed interaction contrac
   const actions = result.blocks[1] as any;
   assert.equal(actions.elements.length, 1);
   const select = actions.elements[0];
-  assert.equal(select.type, "static_select");
+  assert.equal(select.type, "radio_buttons");
   assert.equal(select.action_id, "eve_input:request-1");
   assert.deepEqual(select.options.map((option: any) => [option.value, option.text.text, option.description.text]), [["csv", "CSV", "Import the uploaded file."], ["table", "Existing table", "Reuse saved records."]]);
   assert.equal(JSON.stringify(result).includes("eve_input_freeform"), false);
 });
 
-test("question choices use a menu at every supported option count and stay within Slack text limits", () => {
-  for (const count of [1, 2, 5, 6, 100]) {
+test("question choices use radio buttons at every supported option count and stay within Slack text limits", () => {
+  for (const count of [1, 2, 5, 6, 10]) {
     const options = Array.from({ length: count }, (_, index) => ({ id: `option-${index}`, label: "🙂".repeat(80), description: "Details ".repeat(30) }));
     const result = questionMessage(question(options));
     const select = (result.blocks[1] as any).elements[0];
-    assert.equal(select.type, "static_select");
+    assert.equal(select.type, "radio_buttons");
     assert.equal(select.options.length, count);
     assert.equal(select.initial_option, undefined, "never submit or preselect an answer");
     for (const [index, option] of select.options.entries()) {
@@ -54,7 +54,7 @@ test("short option text stays intact and empty descriptions are omitted", () => 
 
 test("oversized choice metadata stays answerable without invalid Slack controls", async () => {
   const options = [{ id: "gateway", label: "Type your answer" }, { id: "x".repeat(151), label: "CSV", description: "Import the file." }];
-  for (const request of [question(options), { ...question([{ id: "csv", label: "CSV" }]), requestId: "r".repeat(256) }, question(Array.from({ length: 101 }, (_, index) => ({ id: `id-${index}`, label: `Choice ${index}` })))]) {
+  for (const request of [question(options), { ...question([{ id: "csv", label: "CSV" }]), requestId: "r".repeat(256) }, question(Array.from({ length: 11 }, (_, index) => ({ id: `id-${index}`, label: `Choice ${index}` })))]) {
     const posts: any[] = [];
     await postQuestions({ requests: [request], sequence: 1, stepIndex: 1, turnId: "turn-1" }, { thread: { post: async (message: any) => { posts.push(message); return { id: "1" }; } }, state: {} } as any);
     assert.ok(posts.every(message => !message.blocks && message.text.length <= 40000));
