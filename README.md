@@ -27,7 +27,7 @@ A teammate mentions GTM Agent in a channel or messages it directly. The agent pi
 | **Asks every question with options through Slack's native controls** | ✅ | ❌ | ❌ | ✅ |
 | **Commits every workspace change to the repository with a plain-language message** | ✅ | ❌ | ❌ | ❌ |
 | **Qualifies prospects from public web evidence only, with no paid data tools** | ✅ | ❌ | ❌ | ❌ |
-| **Runs saved workflows on Vercel against your own Turso database** | ✅ | ❌ | ❌ | ❌ |
+| **Runs saved workflows on Vercel against your own Neon Postgres database** | ✅ | ❌ | ❌ | ❌ |
 | **Posts workflow results and approval requests straight into a Slack channel** | ✅ | ❌ | ❌ | ❌ |
 
 GTM Agent is a deliberately narrow Eve template: one Slack interface, one set of GTM skills, one workspace repository, and one path for durable changes.
@@ -64,8 +64,8 @@ When a hosted workflow needs a decision, it posts to the Slack channel you chose
 
 <table>
 <tr>
-<td align="center" valign="top" width="50%"><h3>Self-serve</h3><sub>For GTM teams working in Slack</sub><br /><h2>Free</h2><div align="left">&nbsp;&nbsp;&nbsp;✓&nbsp; One open source Eve Slack agent<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Every GTM skill, pinned to a release<br />&nbsp;&nbsp;&nbsp;✓&nbsp; One git-backed GTM workspace repository<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Organization, member, ICP, and persona lifecycles<br />&nbsp;&nbsp;&nbsp;✓&nbsp; In-conversation prospect qualification<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Saved workflows on Vercel with your own Turso database<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Workflow approvals and results in Slack</div></td>
-<td align="center" valign="top" width="50%"><h3>Done-with-you</h3><sub>Hands-on setup and rollout for your GTM team</sub><br /><h2>Let's talk</h2><div align="left">&nbsp;&nbsp;&nbsp;✓&nbsp; Everything in self-serve<br />&nbsp;&nbsp;&nbsp;✓&nbsp; GTM Agent deployment<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Slack and GitHub setup<br />&nbsp;&nbsp;&nbsp;✓&nbsp; GTM workspace repository configuration<br />&nbsp;&nbsp;&nbsp;✓&nbsp; ICP, persona, and workflow design<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Workflow project, Turso, and AI Gateway configuration<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Team rollout, training, and best practices<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Ongoing maintenance and upgrades<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Dedicated Slack channel support</div></td>
+<td align="center" valign="top" width="50%"><h3>Self-serve</h3><sub>For GTM teams working in Slack</sub><br /><h2>Free</h2><div align="left">&nbsp;&nbsp;&nbsp;✓&nbsp; One open source Eve Slack agent<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Every GTM skill, pinned to a release<br />&nbsp;&nbsp;&nbsp;✓&nbsp; One git-backed GTM workspace repository<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Organization, member, ICP, and persona lifecycles<br />&nbsp;&nbsp;&nbsp;✓&nbsp; In-conversation prospect qualification<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Saved workflows on Vercel with your own Neon Postgres database<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Workflow approvals and results in Slack</div></td>
+<td align="center" valign="top" width="50%"><h3>Done-with-you</h3><sub>Hands-on setup and rollout for your GTM team</sub><br /><h2>Let's talk</h2><div align="left">&nbsp;&nbsp;&nbsp;✓&nbsp; Everything in self-serve<br />&nbsp;&nbsp;&nbsp;✓&nbsp; GTM Agent deployment<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Slack and GitHub setup<br />&nbsp;&nbsp;&nbsp;✓&nbsp; GTM workspace repository configuration<br />&nbsp;&nbsp;&nbsp;✓&nbsp; ICP, persona, and workflow design<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Workflow project, Neon, and AI Gateway configuration<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Team rollout, training, and best practices<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Ongoing maintenance and upgrades<br />&nbsp;&nbsp;&nbsp;✓&nbsp; Dedicated Slack channel support</div></td>
 </tr>
 <tr>
 <td align="center"><a href="docs/getting-started.md"><img src="assets/buttons/deploy-gtm-agent.svg" alt="Deploy GTM Agent" /></a></td>
@@ -93,7 +93,7 @@ They never enter the sandbox. The sandbox firewall adds the GitHub token and the
 
 ### Can the agent run GTM workflows?
 
-Yes, on the second Vercel project the one-prompt deploy connects to the workspace repository's `workflows/` folder with a Turso database. The agent builds workflows in its sandbox, pushes them, and starts, approves, and cancels runs on that project. Results and approval requests post to the Slack channel the workflow names.
+Yes, on the second Vercel project the one-prompt deploy connects to the workspace repository's `workflows/` folder with a Neon Postgres database. The agent builds workflows in its sandbox, pushes them, and starts, approves, and cancels runs on that project. Results and approval requests post to the Slack channel the workflow names.
 
 ### Does the agent use paid data providers to qualify prospects?
 
@@ -105,7 +105,7 @@ Eve's default model through the AI Gateway, or the model you name in `GTM_AGENT_
 
 ### What does it cost?
 
-GTM Agent is free, open source, and [MIT licensed](LICENSE). Vercel, Slack, GitHub, Turso, and model usage may be subject to their own plans and charges.
+GTM Agent is free, open source, and [MIT licensed](LICENSE). Vercel, Slack, GitHub, Neon, and model usage may be subject to their own plans and charges.
 
 ## Put the next GTM decision in Slack
 

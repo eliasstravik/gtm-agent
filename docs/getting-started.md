@@ -21,10 +21,10 @@ Then tell your coding agent:
 Get gtm-agent running for Acme in Slack
 ```
 
-The agent creates a private copy of this repository, deploys it to your Vercel team, creates the Slack app, creates the private workspace repository `gtm-acme`, and connects a workflow project with a Turso database, in about five minutes. Two things are yours:
+The agent creates a private copy of this repository, deploys it to your Vercel team, creates the Slack app, creates the private workspace repository `gtm-acme`, and connects a workflow project with a Neon Postgres database, in about five minutes. Two things are yours:
 
 1. The Slack install page it links: choose the workspace and click Allow. The setup skill synchronizes the selected configuration in Vercel and Slack, then verifies it.
-2. The first time your team uses Turso: accept the marketplace terms when the agent asks.
+2. The first time your team uses Neon: add the database to the workflow project through Vercel's Neon integration (Production only) and accept its marketplace terms when the agent asks.
 
 When it says done, invite the app to your GTM channel and mention it:
 
@@ -55,7 +55,7 @@ Set by the skill; listed here for when you look at the project in Vercel.
 | `GTM_WORKFLOW_URL`, `GTM_RUN_SECRET` | agent | the workflow project's production URL and the secret its routes take; both or neither |
 | `GTM_NOTIFY_SECRET`, `GTM_NOTIFY_CHANNEL` | agent | so runs can reach people through `POST /gtm/notify` (the same secret sits on the workflow project); the channel id where posts land when a workflow names none |
 | `GTM_RUN_SECRET`, `CRON_SECRET`, `GTM_MODEL`, `GTM_AGENT_URL`, `GTM_NOTIFY_SECRET`, `GTM_RUNS_URL` | workflow | see the `gtm-agent` skill's setup reference |
-| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | workflow | set by the Turso marketplace integration |
+| `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | workflow | set by the Neon integration in Vercel, Production only; never by hand |
 
 Secrets never enter the sandbox: the sandbox firewall adds the GitHub token to requests to GitHub and the run secret to requests to the workflow project; the agent reads hosted data through that project's query route, so no database token exists on the agent. Model credentials: none; both projects call the AI Gateway with their Vercel OIDC identity.
 
