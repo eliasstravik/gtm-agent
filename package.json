@@ -7,7 +7,7 @@
     "#evals/*": "./evals/*"
   },
   "scripts": {
-    "build": "npx skills@1.5.26 add eliasstravik/gtm-skills#f6371739a7efc79918098617699974065c480fa8 --subagent root -y && eve build",
+    "build": "npx skills@1.5.26 add eliasstravik/gtm-skills#f37e072d25d7fac8f37891f625b656d3ae93f97d --subagent root -y && eve build",
     "deploy": "eve deploy",
     "dev": "eve dev",
     "eval": "eve eval",
