@@ -7,11 +7,11 @@ export default ["/gtm-workflow", "/gtm-workflows"].map(command => defineEval({
   async test(t) {
     const menu = await t.send(command);
     menu.expectOk();
-    const request = t.requireInputRequest({ toolName: "ask_question" });
+    const request = menu.session.requireInputRequest({ toolName: "ask_question" });
     for (const label of ["Open GTM Workflows", "Create a workflow", "Manage a workflow"])
       assert.ok(request.options?.some(option => option.label.includes(label)), `Missing ${label}`);
     const open = request.options!.find(option => option.label.includes("Open GTM Workflows"))!;
-    const result = await t.respond([{ requestId: request.requestId, optionId: open.id }]);
+    const result = await menu.session.respond([{ requestId: request.requestId, optionId: open.id }]);
     result.expectOk();
     assert.match(result.message ?? "", /Open GTM Workflows/);
     assert.match(result.message ?? "", /https:\/\/[^\s"<>]+\/viewer/);

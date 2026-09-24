@@ -40,5 +40,7 @@ export function confirmationQuestion(input: Omit<Confirmation, "confirmationId" 
     options: [{ id: `${id}:yes`, label: "Yes" }, { id: `${id}:no`, label: "No" }],
     display: "confirmation" as const,
     allowFreeform: false,
+    // A message about something else resolves the question as dismissed, which confirms nothing.
+    dismissible: true,
   };
 }
