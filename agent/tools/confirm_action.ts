@@ -14,6 +14,9 @@ export default defineWorkflowTool({
   async execute(input, ctx) {
     "use workflow";
     const answer = await ctx.ask(confirmationQuestion(input, ctx.callId));
-    return { ...input, confirmationId: ctx.callId, confirmed: answer.optionId === `${ctx.callId}:yes` };
+    // Only an explicit Yes on this call's own question confirms. dismissed (the person moved on), unavailable (no
+    // person can answer, such as a scheduled run), No, typed text and a stale option all mean no.
+    const confirmed = answer.status === "answered" && answer.optionId === `${ctx.callId}:yes`;
+    return { ...input, confirmationId: ctx.callId, confirmed, status: answer.status };
   },
 });
