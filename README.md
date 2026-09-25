@@ -101,7 +101,7 @@ No. Fit checks from Slack use public web evidence only. Paid providers are avail
 
 ### Which model does it use?
 
-Eve's default model through the AI Gateway, or the model you name in `GTM_AGENT_MODEL`, with reasoning effort from `GTM_AGENT_REASONING`. Both are read at build time.
+`openai/gpt-6-luna-fast` through the AI Gateway, or the model you name in `GTM_AGENT_MODEL`, with reasoning effort from `GTM_AGENT_REASONING` (`high` when unset). Both are read at build time.
 
 ### What does it cost?
 
