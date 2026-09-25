@@ -51,7 +51,7 @@ Set by the skill; listed here for when you look at the project in Vercel.
 | `SLACK_CONNECTOR` | agent | the Slack connector's uid |
 | `GTM_WORKSPACE_REPOSITORY` | agent | `owner/<repo>`; the repository name, minus a leading `gtm-`, is the workspace slug |
 | `GTM_GITHUB_TOKEN` | agent | the token commits are authored with; the skill uses the GitHub CLI's own, replace it with a fine-grained token scoped to the repository when you want a narrower one |
-| `GTM_AGENT_MODEL`, `GTM_AGENT_REASONING` | agent, optional | an AI Gateway model id (`openai/gpt-5.6-luna-fast` when unset) and its reasoning effort; read at build, so Redeploy after changing them |
+| `GTM_AGENT_MODEL`, `GTM_AGENT_REASONING` | agent, optional | an AI Gateway model id (`openai/gpt-6-luna-fast` when unset) and its reasoning effort (`high` when unset); read at build, so Redeploy after changing them |
 | `GTM_WORKFLOW_URL`, `GTM_RUN_SECRET` | agent | the workflow project's production URL and the secret its routes take; both or neither |
 | `GTM_NOTIFY_SECRET`, `GTM_NOTIFY_CHANNEL` | agent | so runs can reach people through `POST /gtm/notify` (the same secret sits on the workflow project); the channel id where posts land when a workflow names none |
 | `GTM_RUN_SECRET`, `CRON_SECRET`, `GTM_MODEL`, `GTM_AGENT_URL`, `GTM_NOTIFY_SECRET`, `GTM_RUNS_URL` | workflow | see the `gtm-agent` skill's setup reference |
