@@ -52,9 +52,10 @@ Set by the skill; listed here for when you look at the project in Vercel.
 | `GTM_WORKSPACE_REPOSITORY` | agent | `owner/<repo>`; the repository name, minus a leading `gtm-`, is the workspace slug |
 | `GTM_GITHUB_TOKEN` | agent | the token commits are authored with; the skill uses the GitHub CLI's own, replace it with a fine-grained token scoped to the repository when you want a narrower one |
 | `GTM_AGENT_MODEL`, `GTM_AGENT_REASONING` | agent, optional | an AI Gateway model id (`openai/gpt-6-luna-fast` when unset) and its reasoning effort (`high` when unset); read at build, so Redeploy after changing them |
-| `GTM_WORKFLOW_URL`, `GTM_RUN_SECRET` | agent | the workflow project's production URL and the secret its routes take; both or neither |
+| `GTM_WORKFLOW_URL`, `GTM_WORKFLOW_BYPASS_SECRET` | agent | the workflow project's production URL and its Protection Bypass for Automation secret; the host adds the bypass, the sandbox never sees it |
+| `GTM_NEON_IMPORT_URL` | agent, optional | the no-delete import role's connection (gtm-agent skill, `scripts/import-access.mjs`); the host adds it for CSV imports |
 | `GTM_NOTIFY_SECRET`, `GTM_NOTIFY_CHANNEL` | agent | so runs can reach people through `POST /gtm/notify` (the same secret sits on the workflow project); the channel id where posts land when a workflow names none |
-| `GTM_RUN_SECRET`, `CRON_SECRET`, `GTM_MODEL`, `GTM_AGENT_URL`, `GTM_NOTIFY_SECRET`, `GTM_RUNS_URL` | workflow | see the `gtm-agent` skill's setup reference |
+| `CRON_SECRET`, `GTM_MODEL`, `GTM_AGENT_URL`, `GTM_NOTIFY_SECRET`, `GTM_RUNS_URL` | workflow | see the `gtm-agent` skill's setup reference |
 | `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | workflow | set by the Neon integration in Vercel, Production only; never by hand |
 
 Secrets never enter the sandbox: the sandbox firewall adds the GitHub token to requests to GitHub and the run secret to requests to the workflow project; the agent reads hosted data through that project's query route, so no database token exists on the agent. Model credentials: none; both projects call the AI Gateway with their Vercel OIDC identity.
@@ -68,7 +69,7 @@ Click the button to deploy from the Vercel dashboard, then follow the Slack and 
 1. Create an empty private GitHub repository (no README) named `gtm-<slug>` and a GitHub token with contents read and write on it.
 2. Click Deploy: Vercel clones this template, asks for `GTM_WORKSPACE_REPOSITORY` and `GTM_GITHUB_TOKEN`, and creates and installs the Slack connector.
 3. Follow the [Slack configuration procedure](https://github.com/eliasstravik/gtm-skills/blob/main/skills/gtm-agent/references/slack.md) to apply the selected bot scopes, message events, and interactivity in both Vercel and Slack. Reinstall the app, then invite it to channels where it should receive messages.
-4. For workflows, follow "Connect the project, once" in the `gtm-workflow` skill's deploy reference, then set `GTM_WORKFLOW_URL` and `GTM_RUN_SECRET` on this project and Redeploy.
+4. For workflows, follow "Connect the project, once" in the `gtm-workflow` skill's deploy reference, then set `GTM_WORKFLOW_URL` and `GTM_WORKFLOW_BYPASS_SECRET` on this project and Redeploy.
 
 Or from a terminal: fork this repository, `vercel link`, `vercel connect create slack --name gtm-agent --triggers`, `vercel connect attach slack/gtm-agent --environment production --triggers --trigger-path /eve/v1/slack --yes`, set the variables, push. To run the agent on your own machine: `vercel link`, `vercel env pull`, `npm run build` once (it installs the skills), then `npm run dev`.
 
