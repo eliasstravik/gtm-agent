@@ -6,7 +6,7 @@ const base = {
   GTM_WORKSPACE_REPOSITORY: "example/gtm-fixture",
   GTM_GITHUB_TOKEN: "github-fixture",
   GTM_WORKFLOW_URL: "https://fixture.vercel.app",
-  GTM_RUN_SECRET: "run-fixture",
+  GTM_NEON_IMPORT_URL: "postgresql://gtm_agent_import:neon-fixture@ep-fixture-1.c-1.us-east-1.aws.neon.tech/neondb?sslmode=require",
   GTM_WORKFLOW_BYPASS_SECRET: "gate-fixture",
   GTM_WORKFLOW_GATE_REQUIRED: "1",
 };
@@ -27,9 +27,13 @@ test("workflow credentials are injected only for its host and never included in 
   assert.equal(result.status, 0, result.stderr);
   const host = JSON.parse(result.stdout);
   assert.deepEqual(host.allow["fixture.vercel.app"][0].transform[0].headers, {
-    authorization: "Bearer run-fixture",
     "x-vercel-protection-bypass": "gate-fixture",
   });
+  assert.deepEqual(host.allow["ep-fixture-1.c-1.us-east-1.aws.neon.tech"][0].transform[0].headers, {
+    "Neon-Connection-String": base.GTM_NEON_IMPORT_URL,
+  });
+  assert.match(host.exports, /GTM_AGENT_HOSTED=1/);
+  assert.match(host.exports, /GTM_NEON_SQL_URL=https:\/\/ep-fixture-1\.c-1\.us-east-1\.aws\.neon\.tech\/sql/);
   assert.deepEqual(host.allow["*"], []);
   assert.equal(
     host.allow["github.com"][0].transform[0].headers[
@@ -37,7 +41,7 @@ test("workflow credentials are injected only for its host and never included in 
     ],
     undefined,
   );
-  for (const secret of ["run-fixture", "gate-fixture", "github-fixture"]) {
+  for (const secret of ["neon-fixture", "gate-fixture", "github-fixture"]) {
     assert.ok(!host.exports.includes(secret));
     assert.ok(!host.description.includes(secret));
   }
@@ -57,4 +61,8 @@ test("credentialed destinations must be exact HTTPS origins", () => {
     "https://fixture.vercel.app:8080",
   ])
     assert.notEqual(load({ ...base, GTM_WORKFLOW_URL: url }).status, 0);
+});
+test("an import connection that is not Neon's fails the build", () => {
+  for (const url of ["postgresql://u:p@db.example.com/x", "https://ep-x.neon.tech", "not a url"])
+    assert.notEqual(load({ ...base, GTM_NEON_IMPORT_URL: url }).status, 0);
 });
