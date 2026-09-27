@@ -50,15 +50,14 @@ Set by the skill; listed here for when you look at the project in Vercel.
 | --- | --- | --- |
 | `SLACK_CONNECTOR` | agent | the Slack connector's uid |
 | `GTM_WORKSPACE_REPOSITORY` | agent | `owner/<repo>`; the repository name, minus a leading `gtm-`, is the workspace slug |
-| `GTM_GITHUB_TOKEN` | agent | the token commits are authored with; the skill uses the GitHub CLI's own, replace it with a fine-grained token scoped to the repository when you want a narrower one |
+| `GTM_GITHUB_TOKEN` | agent | a fine-grained GitHub token with access to the workspace repository only (Repository permissions: Contents read and write); commits are authored as its owner, and the host adds it only to git requests for that repository |
 | `GTM_AGENT_MODEL`, `GTM_AGENT_REASONING` | agent, optional | an AI Gateway model id (`openai/gpt-6-luna-fast` when unset) and its reasoning effort (`high` when unset); read at build, so Redeploy after changing them |
 | `GTM_WORKFLOW_URL`, `GTM_WORKFLOW_BYPASS_SECRET` | agent | the workflow project's production URL and its Protection Bypass for Automation secret; the host adds the bypass, the sandbox never sees it |
-| `GTM_NEON_IMPORT_URL` | agent, optional | the no-delete import role's connection (gtm-agent skill, `scripts/import-access.mjs`); the host adds it for CSV imports |
 | `GTM_NOTIFY_SECRET`, `GTM_NOTIFY_CHANNEL` | agent | so runs can reach people through `POST /gtm/notify` (the same secret sits on the workflow project); the channel id where posts land when a workflow names none |
-| `CRON_SECRET`, `GTM_MODEL`, `GTM_AGENT_URL`, `GTM_NOTIFY_SECRET`, `GTM_RUNS_URL` | workflow | see the `gtm-agent` skill's setup reference |
+| `CRON_SECRET`, `GTM_MODEL`, `GTM_AGENT_URL`, `GTM_NOTIFY_SECRET` | workflow | see the `gtm-agent` skill's setup reference |
 | `DATABASE_URL`, `DATABASE_URL_UNPOOLED` | workflow | set by the Neon integration in Vercel, Production only; never by hand |
 
-Secrets never enter the sandbox: the sandbox firewall adds the GitHub token to requests to GitHub and the run secret to requests to the workflow project; the agent reads hosted data through that project's query route, so no database token exists on the agent. Model credentials: none; both projects call the AI Gateway with their Vercel OIDC identity.
+Secrets never enter the sandbox: the sandbox firewall adds the GitHub token to git requests for the workspace repository and the bypass secret to requests to the workflow project. The agent reads hosted data through that project's query route and imports a CSV by starting a run with its rows, so no database credential exists on the agent. Model credentials: none; both projects call the AI Gateway with their Vercel OIDC identity.
 
 ## Without the skill
 
@@ -66,10 +65,10 @@ Click the button to deploy from the Vercel dashboard, then follow the Slack and 
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent&project-name=gtm-agent&repository-name=gtm-agent&connect=%5B%7B%22type%22%3A%22slack%22%2C%22env%22%3A%22SLACK_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Fslack%22%7D%5D&env=GTM_WORKSPACE_REPOSITORY%2CGTM_GITHUB_TOKEN&envDescription=The+GTM+workspace+repository+%28owner%2Frepo%29+and+a+GitHub+token+with+contents+read+and+write+on+it.&envLink=https%3A%2F%2Fgithub.com%2Feliasstravik%2Fgtm-agent%2Fblob%2Fmain%2Fdocs%2Fgetting-started.md)
 
-1. Create an empty private GitHub repository (no README) named `gtm-<slug>` and a GitHub token with contents read and write on it.
+1. Create an empty private GitHub repository (no README) named `gtm-<slug>` and a fine-grained GitHub token (Settings → Developer settings → Fine-grained tokens) with "Only select repositories" set to it and Contents read and write.
 2. Click Deploy: Vercel clones this template, asks for `GTM_WORKSPACE_REPOSITORY` and `GTM_GITHUB_TOKEN`, and creates and installs the Slack connector.
 3. Follow the [Slack configuration procedure](https://github.com/eliasstravik/gtm-skills/blob/main/skills/gtm-agent/references/slack.md) to apply the selected bot scopes, message events, and interactivity in both Vercel and Slack. Reinstall the app, then invite it to channels where it should receive messages.
-4. For workflows, follow "Connect the project, once" in the `gtm-workflow` skill's deploy reference, then set `GTM_WORKFLOW_URL` and `GTM_WORKFLOW_BYPASS_SECRET` on this project and Redeploy.
+4. For workflows, put the workspace's `workflows/` folder live as the `gtm-workflow` skill's deploy reference says, then set `GTM_WORKFLOW_URL` and `GTM_WORKFLOW_BYPASS_SECRET` on this project and Redeploy.
 
 Or from a terminal: fork this repository, `vercel link`, `vercel connect create slack --name gtm-agent --triggers`, `vercel connect attach slack/gtm-agent --environment production --triggers --trigger-path /eve/v1/slack --yes`, set the variables, push. To run the agent on your own machine: `vercel link`, `vercel env pull`, `npm run build` once (it installs the skills), then `npm run dev`.
 

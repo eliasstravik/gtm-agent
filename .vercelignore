@@ -5,3 +5,6 @@ node_modules
 .output
 .nitro
 dist
+agent/skills
+.agents
+skills-lock.json
