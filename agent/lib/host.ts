@@ -49,8 +49,9 @@ const origin = (name: string, value: string) => {
 const inject = (headers: Record<string, string>) => [{ transform: [{ headers }] }];
 
 // Git over HTTPS for the workspace repository only: the token rides on its clone, fetch and push requests and on no
-// other request to github.com, so no other repository and no GitHub API call ever gets it. GitHub paths ignore case.
-export const gitPath = `(?i)^/${repo.replaceAll(".", "\\.")}\\.git/(?:info/refs|git-upload-pack|git-receive-pack)(?:\\?.*)?$`;
+// other request to github.com, so no other repository and no GitHub API call ever gets it. The firewall takes no regex
+// flags, so the path matches the repository name exactly as GTM_WORKSPACE_REPOSITORY spells it, as the checkout does.
+export const gitPath = `^/${repo.replaceAll(".", "\\.")}\\.git/(?:info/refs|git-upload-pack|git-receive-pack)(?:\\?.*)?$`;
 
 /** Firewall: hosts that get a credential added on the way out, then everything else open with none. */
 export const allow = {

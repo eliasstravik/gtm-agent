@@ -63,14 +63,12 @@ test("the GitHub credential covers only the workspace repository's git requests"
   const [rule, ...rest] = JSON.parse(result.stdout).allow["github.com"];
   assert.equal(rest.length, 0);
   const source = rule.match.path.regex as string;
-  assert.ok(source.startsWith("(?i)"));
-  const path = new RegExp(source.slice(4), "i");
+  const path = new RegExp(source);
   for (const ok of [
     "/example/gtm-fixture.git/info/refs",
     "/example/gtm-fixture.git/info/refs?service=git-receive-pack",
     "/example/gtm-fixture.git/git-upload-pack",
     "/example/gtm-fixture.git/git-receive-pack",
-    "/Example/GTM-Fixture.git/info/refs",
   ])
     assert.ok(path.test(ok), ok);
   for (const no of [
