@@ -89,7 +89,7 @@ To the workspace repository, as commits on `main` authored as the owner of the G
 
 ### How are secrets handled?
 
-They never enter the sandbox. The sandbox firewall adds the GitHub token and the workflow run secret to requests on the way out; hosted data is read through the workflow project's query route, so no database token exists on the agent. Model access runs through Vercel's AI Gateway with each project's own identity, no key anywhere.
+They never enter the sandbox. The sandbox firewall adds the GitHub token, only to git requests for the workspace repository, and the workflow project's bypass secret to requests on the way out. Hosted data is read through the workflow project's query route, and a CSV import is a run started with the file's rows, so no database credential exists on the agent. Model access runs through Vercel's AI Gateway with each project's own identity, no key anywhere.
 
 ### Can the agent run GTM workflows?
 

@@ -46,23 +46,17 @@ const origin = (name: string, value: string) => {
     throw new Error(`${name} must be an HTTPS origin`);
   return url.hostname;
 };
-// Merge-only CSV imports: the no-delete import role's connection (gtm-agent skill, scripts/import-access.mjs), sent as
-// Neon's Neon-Connection-String header to this database's own SQL endpoint only. The sandbox sees the address.
-const importUrl = process.env.GTM_NEON_IMPORT_URL;
-const neonHost = importUrl
-  ? (() => {
-      const url = new URL(importUrl);
-      if (!/^postgres(?:ql)?:$/.test(url.protocol) || !/^ep-[a-z0-9-]+\.[a-z0-9.-]+\.neon\.tech$/.test(url.hostname))
-        throw new Error("GTM_NEON_IMPORT_URL must be a Neon connection string");
-      return url.hostname;
-    })()
-  : null;
 const inject = (headers: Record<string, string>) => [{ transform: [{ headers }] }];
+
+// Git over HTTPS for the workspace repository only: the token rides on its clone, fetch and push requests and on no
+// other request to github.com, so no other repository and no GitHub API call ever gets it. GitHub paths ignore case.
+export const gitPath = `(?i)^/${repo.replaceAll(".", "\\.")}\\.git/(?:info/refs|git-upload-pack|git-receive-pack)(?:\\?.*)?$`;
 
 /** Firewall: hosts that get a credential added on the way out, then everything else open with none. */
 export const allow = {
   "github.com": [
     {
+      match: { path: { regex: gitPath } },
       transform: [
         {
           headers: {
@@ -75,7 +69,6 @@ export const allow = {
   ...(workflow && {
     [origin("GTM_WORKFLOW_URL", workflow.GTM_WORKFLOW_URL)]: inject({ "x-vercel-protection-bypass": bypass! }),
   }),
-  ...(neonHost && { [neonHost]: inject({ "Neon-Connection-String": importUrl! }) }),
   "*": [],
 };
 
@@ -84,7 +77,6 @@ export const home = `$HOME/.gtm/${slug}`;
 export const exports = [
   "export GTM_AGENT_HOSTED=1",
   workflow ? `GTM_WORKFLOW_URL=${workflow.GTM_WORKFLOW_URL}` : "",
-  neonHost ? `GTM_NEON_SQL_URL=https://${neonHost}/sql` : "",
 ].filter(Boolean).join(" ");
 
 const list = (items: string[]) =>
@@ -96,13 +88,10 @@ const list = (items: string[]) =>
 export function describeHost(): string {
   const credentialed = Object.keys(allow).filter((h) => h !== "*");
   return [
-    `Network from this computer: requests to ${list(credentialed)} get the host's credential added on the way out, so send none yourself; every other address is reachable with no credential at all. No secret exists in this environment (\`GTM_AGENT_HOSTED=1\` says so); the credential is supplied for you.`,
+    `Network from this computer: requests to ${list(credentialed)} get the host's credential added on the way out, so send none yourself; every other address is reachable with no credential at all. No secret exists in this environment (\`GTM_AGENT_HOSTED=1\` says so); the credential is supplied for you. On github.com it covers git clone, fetch and push of ${repo} only: other repositories and GitHub's API get none.`,
     workflow
-      ? `The workflow project is connected at ${workflow.GTM_WORKFLOW_URL}. GET /api/connections returns safe provider names, configured presence and declared workflow usage, including unused services with no workflow. Read this metadata before reporting connection availability; it does not prove a provider key works. Never read stored values. Its link resolver returns canonical private viewerUrl behind Vercel sign-in. GET /api/link opens the list; GET /api/link/<workflow-id-or-slug> opens a workflow. Explicit sharing uses /api/viewer/service with the same protected host credential: one reusable link, Diagram by default, Runs and Data optional, no expiry, and scope changes only on explicit save. Its result tables are read through its query route (POST /api/query) with the same credential.`
+      ? `The workflow project is connected at ${workflow.GTM_WORKFLOW_URL}. GET /api/connections returns safe provider names, configured presence and declared workflow usage, including unused services with no workflow. Read this metadata before reporting connection availability; it does not prove a provider key works. Never read stored values. Its link resolver returns canonical private viewerUrl behind Vercel sign-in. GET /api/link opens the list; GET /api/link/<workflow-id-or-slug> opens a workflow. Explicit sharing uses /api/viewer/service with the same protected host credential: one reusable link, Diagram by default, Runs and Data optional, no expiry, and scope changes only on explicit save. Its result tables are read through its query route (POST /api/query) with the same credential. A CSV import is a run: POST /api/run/<slug> with the file's rows as \`rows\`, as gtm-workflow's imports reference says, so the workflow resolves identities and saves its own results; say the row count and the workflow first. There is no direct database access.`
       : "No workflow project is connected yet; a save that needs one closes with the connection steps.",
-    neonHost
-      ? `CSV imports into the workspace's production database: POST SQL to $GTM_NEON_SQL_URL as gtm-workflow's imports reference says (merge by key with INSERT ... ON CONFLICT DO UPDATE; the database refuses deletes). Say the row count and table first.`
-      : "No database import access is set up; a CSV import request closes by naming the gtm-agent skill's Imports job.",
     "Connections the agent exposes as tools call their services from the agent with their own credentials, never from this computer; a workflow step calls a gateway's HTTP API with the key on the workflow project instead.",
   ].join("\n");
 }
