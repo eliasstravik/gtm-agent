@@ -30,6 +30,7 @@ test("workflow credentials are injected only for its host and never included in 
   assert.match(host.exports, /GTM_AGENT_HOSTED=1/);
   assert.equal(Object.keys(host.allow).some((h) => h.includes("neon")), false);
   assert.deepEqual(host.allow["*"], []);
+  assert.match(host.description, /409 .*already_running.*never retry/);
   assert.equal(
     host.allow["github.com"][0].transform[0].headers[
       "x-vercel-protection-bypass"
