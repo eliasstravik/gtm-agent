@@ -31,6 +31,8 @@ test("workflow credentials are injected only for its host and never included in 
   assert.equal(Object.keys(host.allow).some((h) => h.includes("neon")), false);
   assert.deepEqual(host.allow["*"], []);
   assert.match(host.description, /409 .*already_running.*never retry/);
+  assert.match(host.description, /GET \/api\/link\/group\/<group-id>.*runsUrl/);
+  assert.match(host.description, /op=workspaceRuns&group=<group-id>.*op=summary/);
   assert.equal(
     host.allow["github.com"][0].transform[0].headers[
       "x-vercel-protection-bypass"
