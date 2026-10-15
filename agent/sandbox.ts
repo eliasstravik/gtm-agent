@@ -4,6 +4,9 @@ import { allow, exports, home, repo, token } from "./lib/host";
 import { workspaceCheckout } from "./lib/workspace-checkout";
 
 const npmCi = "npm ci --no-audit --no-fund -q";
+// gtm-workflow ships without its project template and fetches it once per release from the gtm-skills tag into
+// ~/.cache/gtm-skills. Skill files are written before `prepare`, so the snapshot carries the template for this pin.
+const workflowTemplate = `node "$HOME/.agents/skills/gtm-workflow/scripts/template.mjs" >/dev/null`;
 
 // The firewall applies before `prepare` runs, so the checkout below already gets the GitHub credential on the way out.
 // Eve rebuilds the snapshot whenever these options or this file change, which covers a new repository or workflow project.
@@ -19,6 +22,7 @@ export const environment = VercelSandbox.environment({
         // The profile file is the one `bash -l` reads: .bash_profile, else .bash_login, else .profile.
         `p=$HOME/.bash_profile; [ -f $p ] || p=$HOME/.bash_login; [ -f $p ] || p=$HOME/.profile; printf '%s\\n' '${exports}' >> $p`,
         `git config --global user.name "${login}" && git config --global user.email "${id}+${login}@users.noreply.github.com" && git config --global init.defaultBranch main`,
+        workflowTemplate,
         workspaceCheckout(`https://github.com/${repo}.git`, home),
         `if [ -f ${home}/workflows/package-lock.json ]; then (cd ${home}/workflows && ${npmCi}); fi`,
       ].join(" && "),
